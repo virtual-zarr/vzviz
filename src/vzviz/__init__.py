@@ -14,6 +14,7 @@ from vzviz.heatmap import chunk_file_heatmap, chunk_file_heatmap_interactive
 from vzviz.query import (
     QueryMetrics,
     compare_queries,
+    metrics_from_selection,
     simulate_query,
 )
 from vzviz.selection import SelectionState
@@ -45,6 +46,7 @@ __all__ = [
     # Query simulation (vischunk-like)
     "simulate_query",
     "compare_queries",
+    "metrics_from_selection",
     "QueryMetrics",
     # Selection state for interactive visualizations
     "SelectionState",

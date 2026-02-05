@@ -39,9 +39,10 @@ def manifest_dashboard(
     show_overview : bool
         Include variables overview table.
     show_byterange : bool
-        Include byte range chart.
+        Include ByteMap.
     show_heatmap : bool
-        Include chunk-to-file heatmap (requires variable to be specified).
+        Include chunk-to-file heatmap. If variable is specified, shows that variable.
+        Otherwise, shows a reactive heatmap that updates based on table selection.
     show_summary : bool
         Include summary statistics table.
 
@@ -89,7 +90,10 @@ def manifest_dashboard(
     if show_overview:
         components.append(pn.pane.Markdown("### Variables Overview"))
         components.append(
-            pn.pane.Markdown("*Click rows to highlight in byte range chart*")
+            pn.pane.Markdown(
+                "*Select rows to highlight in ByteMap. "
+                "Select one variable to view its heatmap.*"
+            )
         )
         overview_df = variables_overview(store)
         if len(overview_df) > 0:
@@ -107,9 +111,22 @@ def manifest_dashboard(
             ]
 
             if interactive and selection_state is not None:
+                # Get variable colors matching the ByteMap
+                from vzviz.utils import get_variable_color_map
+
+                var_colors = get_variable_color_map(display_df["variable"].tolist())
+
+                # Create row background color style function
+                def row_style(row):
+                    color = var_colors.get(row["variable"], "#ffffff")
+                    # Use lighter version for background (add alpha)
+                    return [f"background-color: {color}40"] * len(row)
+
+                styled_df = display_df.style.apply(row_style, axis=1)
+
                 # Use Tabulator for interactive row selection
                 variables_table = pn.widgets.Tabulator(
-                    display_df,
+                    styled_df,
                     width=900,
                     height=min(400, 50 + len(display_df) * 30),
                     selectable="checkbox",
@@ -121,10 +138,13 @@ def manifest_dashboard(
                 def on_selection_change(event):
                     selected_indices = variables_table.selection
                     if selected_indices:
-                        selected_vars = display_df.iloc[selected_indices][
-                            "variable"
-                        ].tolist()
-                        selection_state.set_selected_variables(selected_vars)
+                        # Use selected_dataframe to handle sorted/filtered views
+                        selected_df = variables_table.selected_dataframe
+                        if not selected_df.empty and "variable" in selected_df.columns:
+                            selected_vars = selected_df["variable"].tolist()
+                            selection_state.set_selected_variables(selected_vars)
+                        else:
+                            selection_state.set_selected_variables([])
                     else:
                         selection_state.set_selected_variables([])
 
@@ -167,7 +187,7 @@ def manifest_dashboard(
 
     # Byte range chart
     if show_byterange:
-        components.append(pn.pane.Markdown("### Byte Range Chart"))
+        components.append(pn.pane.Markdown("### ByteMap"))
         try:
             if interactive and selection_state is not None:
                 byterange_component = byte_range_chart_interactive(
@@ -175,6 +195,7 @@ def manifest_dashboard(
                     variable,
                     selection_state=selection_state,
                     width=800,
+                    include_toggle=True,  # Enable chunks/gaps toggle
                 )
                 components.append(byterange_component)
             else:
@@ -186,101 +207,212 @@ def manifest_dashboard(
                 )
                 components.append(pn.pane.HoloViews(byterange_plot))
         except Exception as e:
-            components.append(
-                pn.pane.Markdown(f"*Error creating byte range chart: {e}*")
-            )
+            components.append(pn.pane.Markdown(f"*Error creating ByteMap: {e}*"))
 
-    # Heatmap (requires specific variable)
-    if show_heatmap and variable is not None:
+    # Heatmap (reactive to variable selection or fixed variable)
+    if show_heatmap:
         from vzviz.core import get_array
 
-        try:
-            array = get_array(store, variable)
-            ndim = len(array.shape)
-            if ndim >= 1:
-                components.append(
-                    pn.pane.Markdown(f"### Chunk-to-File Heatmap: {variable}")
+        if variable is not None:
+            # Fixed variable mode - show specific variable
+            try:
+                array = get_array(store, variable)
+                ndim = len(array.shape)
+                if ndim >= 1:
+                    components.append(pn.pane.Markdown(f"### ChunkMap: {variable}"))
+                    if interactive and selection_state is not None:
+                        heatmap_component = chunk_file_heatmap_interactive(
+                            store,
+                            variable,
+                            selection_state=selection_state,
+                            width=600,
+                            height=400,
+                        )
+                        components.append(heatmap_component)
+                    else:
+                        heatmap_plot = chunk_file_heatmap(
+                            store,
+                            variable,
+                            width=600,
+                            height=400,
+                        )
+                        components.append(pn.pane.HoloViews(heatmap_plot))
+            except Exception as e:
+                components.append(pn.pane.Markdown(f"*Error creating heatmap: {e}*"))
+        elif interactive and selection_state is not None:
+            # Reactive mode - heatmap updates based on selected variable
+            components.append(pn.pane.Markdown("### ChunkMap"))
+            components.append(
+                pn.pane.Markdown(
+                    "*Select a single variable above to view its chunk heatmap*"
                 )
-                if interactive and selection_state is not None:
-                    heatmap_component = chunk_file_heatmap_interactive(
-                        store,
-                        variable,
-                        selection_state=selection_state,
-                        width=600,
-                        height=400,
+            )
+
+            # Container for reactive heatmap
+            heatmap_container = pn.Column()
+
+            def update_heatmap(selected_variables):
+                """Update heatmap when variable selection changes."""
+                heatmap_container.clear()
+
+                if not selected_variables:
+                    heatmap_container.append(pn.pane.Markdown("*No variable selected*"))
+                    return
+
+                if len(selected_variables) > 1:
+                    heatmap_container.append(
+                        pn.pane.Markdown(
+                            f"*{len(selected_variables)} variables selected - "
+                            "select exactly one to view heatmap*"
+                        )
                     )
-                    components.append(heatmap_component)
-                else:
-                    heatmap_plot = chunk_file_heatmap(
-                        store,
-                        variable,
-                        backend="holoviews",
-                        width=600,
-                        height=400,
+                    return
+
+                selected_var = selected_variables[0]
+                try:
+                    array = get_array(store, selected_var)
+                    ndim = len(array.shape)
+                    if ndim >= 1:
+                        heatmap_component = chunk_file_heatmap_interactive(
+                            store,
+                            selected_var,
+                            selection_state=selection_state,
+                            width=600,
+                            height=400,
+                        )
+                        heatmap_container.append(
+                            pn.pane.Markdown(f"**Variable:** {selected_var}")
+                        )
+                        heatmap_container.append(heatmap_component)
+                    else:
+                        heatmap_container.append(
+                            pn.pane.Markdown(
+                                f"*Cannot create heatmap for scalar variable {selected_var}*"
+                            )
+                        )
+                except Exception as e:
+                    heatmap_container.append(
+                        pn.pane.Markdown(
+                            f"*Error creating heatmap for {selected_var}: {e}*"
+                        )
                     )
-                    components.append(pn.pane.HoloViews(heatmap_plot))
-        except Exception as e:
-            components.append(pn.pane.Markdown(f"*Error creating heatmap: {e}*"))
+
+            # Watch for variable selection changes
+            selection_state.param.watch(
+                lambda event: update_heatmap(event.new), "selected_variables"
+            )
+
+            # Initial render
+            update_heatmap(selection_state.selected_variables)
+
+            components.append(heatmap_container)
 
     # Selection info panel (only in interactive mode)
     if interactive and selection_state is not None:
         components.append(pn.pane.Markdown("### Selection"))
-        df = manifest_to_dataframe(store, variable)
+        # Get all chunks for selection calculations
+        all_chunks_df = manifest_to_dataframe(store, None)
 
-        def get_selection_info(bounds, selected_variables):
-            return _format_selection_info(selection_state, df)
-
-        selection_info = pn.bind(
-            get_selection_info,
-            bounds=selection_state.param.bounds,
-            selected_variables=selection_state.param.selected_variables,
+        # Use ParamFunction for reliable reactive updates
+        @pn.depends(
+            selection_state.param.selected_variables,
+            selection_state.param.bounds,
         )
-        components.append(pn.pane.Markdown(selection_info))
+        def selection_info_panel(selected_vars, bounds):
+            info_text = _format_selection_info(selection_state, all_chunks_df, store)
+            return pn.pane.Markdown(info_text)
+
+        components.append(pn.panel(selection_info_panel))
 
     return pn.Column(*components)
 
 
-def _format_selection_info(selection_state: Any, df: Any) -> str:
+def _format_selection_info(selection_state: Any, df: Any, store: Any = None) -> str:
     """Format selection information for display."""
     from vzviz.utils import format_bytes
 
     if not selection_state.has_selection:
-        return "*Click rows in the table or use box select in the heatmap to select chunks.*"
-
-    selected_keys = selection_state.get_selected_chunk_keys(df)
-
-    if not selected_keys:
-        return "*No chunks in selection.*"
-
-    # Calculate stats for selected chunks
-    selected_df = df[df["chunk_key"].isin(selected_keys)]
-    n_chunks = len(selected_df)
-    total_bytes = selected_df["length"].sum()
-    n_files = selected_df["path"].nunique()
+        return "*Click rows in the table or use box select in the ChunkMap to select chunks.*"
 
     lines = []
 
-    # Show selected variables
+    # Section 1: Variable selection from table
     if selection_state.selected_variables:
         var_list = ", ".join(selection_state.selected_variables[:5])
         if len(selection_state.selected_variables) > 5:
             var_list += f" (+{len(selection_state.selected_variables) - 5} more)"
-        lines.append(f"**Selected variables:** {var_list}")
 
-    # Show bounds if set
-    if selection_state.bounds is not None:
+        # Get stats for variable selection
+        var_mask = df["variable"].isin(selection_state.selected_variables)
+        var_df = df[var_mask]
+        var_chunks = len(var_df)
+        var_bytes = var_df["length"].sum()
+
+        lines.append("**From Table Selection:**")
+        lines.append(f"- Variables: {var_list}")
+        lines.append(f"- Total Chunks: {var_chunks:,}")
+        lines.append(f"- Total Size: {format_bytes(int(var_bytes))}")
+
+    # Section 2: Region selection from ChunkMap
+    if (
+        selection_state.bounds is not None
+        and selection_state.bounds_variable is not None
+    ):
         x_min, y_min, x_max, y_max = selection_state.bounds
-        lines.append(
-            f"**Selected region:** ({int(round(x_min))}, {int(round(y_min))}) to ({int(round(x_max))}, {int(round(y_max))})"
-        )
 
-    lines.extend(
-        [
-            f"**Chunks selected:** {n_chunks:,}",
-            f"**Total size:** {format_bytes(int(total_bytes))}",
-            f"**Files spanned:** {n_files}",
-        ]
-    )
+        # Get stats for region selection (highlighted chunks)
+        region_keys = selection_state.get_selected_chunk_keys(df, for_highlighting=True)
+        region_df = df[df["chunk_key"].isin(region_keys)]
+        region_chunks = len(region_df)
+        region_bytes = region_df["length"].sum()
+        region_files = region_df["path"].nunique()
+
+        if lines:
+            lines.append("")
+
+        lines.append(
+            f"**From ChunkMap Selection** ({selection_state.bounds_variable}):"
+        )
+        lines.append(
+            f"- Region: ({int(round(x_min))}, {int(round(y_min))}) to ({int(round(x_max))}, {int(round(y_max))})"
+        )
+        lines.append(f"- Chunks: {region_chunks:,}")
+        lines.append(f"- Size: {format_bytes(int(region_bytes))}")
+        lines.append(f"- Files: {region_files}")
+
+        # Add performance metrics
+        if store is not None:
+            try:
+                from vzviz.query import metrics_from_selection
+
+                metrics = metrics_from_selection(
+                    store,
+                    selection_state.bounds_variable,
+                    selection_state.bounds,
+                    selection_state.dim_x,
+                    selection_state.dim_y,
+                    selection_state.chunk_shape,
+                    selection_state.bounds_in_array_space,
+                )
+
+                lines.append("")
+                lines.append("**Performance Metrics:**")
+                lines.append(f"- Array Elements Requested: {metrics.requested_cells:,}")
+                lines.append(f"- Array Elements Read: {metrics.cells_read:,}")
+                lines.append(f"- Read Amplification: {metrics.read_amplification:.2f}x")
+                lines.append(f"- Read Efficiency: {metrics.read_efficiency:.1f}%")
+                lines.append(
+                    f"- Chunks Touched: {metrics.chunks_touched:,} / {metrics.total_chunks:,}"
+                )
+                lines.append(f"- Range Reads: {metrics.range_reads:,}")
+                lines.append(f"- Coalescing Factor: {metrics.coalescing_factor:.2f}x")
+                lines.append(f"- Storage Alignment: {metrics.storage_alignment:.2f}")
+            except Exception:
+                # Silently skip metrics if they can't be computed
+                pass
+
+    if not lines:
+        return "*No chunks in selection.*"
 
     return "  \n".join(lines)
 

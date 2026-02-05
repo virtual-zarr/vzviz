@@ -22,6 +22,20 @@ class QueryMetrics:
 
     These metrics help understand the efficiency implications of chunking
     for a given data access pattern.
+
+    Attributes
+    ----------
+    requested_cells : int
+        The number of cells in your query region that you actually want to read.
+    cells_read : int
+        The total number of cells that must be read due to chunking,
+        including both requested and extra cells.
+    chunks_touched : int
+        How many chunks intersect with your query region. Fewer chunks
+        generally mean more efficient access patterns.
+    range_reads : int
+        Number of separate read operations needed. Fewer range reads
+        reduce I/O overhead and improve performance.
     """
 
     # Query definition
@@ -49,14 +63,24 @@ class QueryMetrics:
 
     @property
     def read_amplification(self) -> float:
-        """Ratio of cells read to cells requested. Lower is better. 1.0 is optimal."""
+        """
+        Shows how much extra data you read due to chunking.
+
+        Computed as cells_read / requested_cells. Values > 1.0 indicate
+        wasted bandwidth. Lower is better; 1.0 is optimal.
+        """
         if self.requested_cells == 0:
             return float("inf")
         return self.cells_read / self.requested_cells
 
     @property
     def read_efficiency(self) -> float:
-        """Percentage of read data that is actually needed. Higher is better."""
+        """
+        Percentage of useful data in each read operation.
+
+        Higher percentages indicate better performance with less wasted I/O.
+        Computed as (requested_cells / cells_read) * 100.
+        """
         if self.cells_read == 0:
             return 0.0
         return (self.requested_cells / self.cells_read) * 100
@@ -64,13 +88,15 @@ class QueryMetrics:
     @property
     def coalescing_factor(self) -> float:
         """
-        How much read coalescing improves I/O vs worst case.
+        Shows how much read coalescing improves I/O efficiency.
 
-        Computed as chunks_touched / range_reads. Higher means more chunks
-        are combined into fewer reads due to contiguous storage.
+        Computed as chunks_touched / range_reads. Values > 1.0 indicate
+        that multiple chunks are being read in fewer operations due to
+        spatial locality.
 
-        Note: This assumes a sharded format where chunks can be coalesced.
-        For unsharded Zarr (one file per chunk), this would always be 1.0.
+        Note: This does not apply to formats that split chunks into
+        individual files, like unsharded Zarr, where each chunk has
+        to be read via a separate read request.
         """
         if self.range_reads == 0:
             return 0.0
@@ -82,6 +108,37 @@ class QueryMetrics:
         if self.total_chunks == 0:
             return 0.0
         return (self.chunks_touched / self.total_chunks) * 100
+
+    @property
+    def storage_alignment(self) -> float:
+        """
+        Overall measure of how well the query aligns with storage layout (0.0 to 1.0).
+
+        Combines read efficiency and coalescing factor in a weighted normalized
+        average. Higher values indicate better alignment between your access
+        pattern and chunking strategy.
+
+        This is computed theoretically based on chunk geometry, not actual
+        byte sizes from the store.
+        """
+        # Read efficiency normalized to 0-1
+        read_eff = self.read_efficiency / 100.0
+
+        # Coalescing efficiency normalized to 0-1
+        # 1.0 when all chunks are read in one operation
+        # 0.0 when each chunk requires a separate read
+        if self.chunks_touched <= 1:
+            coalesce_eff = 1.0
+        else:
+            # Linear scale: (chunks_touched - range_reads) / (chunks_touched - 1)
+            # range_reads=1 → 1.0, range_reads=chunks_touched → 0.0
+            coalesce_eff = (self.chunks_touched - self.range_reads) / (
+                self.chunks_touched - 1
+            )
+            coalesce_eff = max(0.0, min(1.0, coalesce_eff))
+
+        # Weighted average (equal weights for read efficiency and coalescing)
+        return 0.5 * read_eff + 0.5 * coalesce_eff
 
     def __repr__(self) -> str:
         lines = [
@@ -329,6 +386,74 @@ def _coalesce_ranges(entries: list[dict]) -> list[tuple[int, int]]:
     ranges.append((current_start, current_end))
 
     return ranges
+
+
+def metrics_from_selection(
+    store: "ManifestStore",
+    variable: str,
+    bounds: tuple[float, float, float, float],
+    dim_x: int,
+    dim_y: int,
+    chunk_shape: tuple[int, ...] | None = None,
+    bounds_in_array_space: bool = True,
+) -> QueryMetrics:
+    """
+    Compute query metrics from a selection made in the ChunkMap.
+
+    Parameters
+    ----------
+    store : ManifestStore
+        The ManifestStore containing the variable.
+    variable : str
+        Variable path.
+    bounds : tuple
+        Selection bounds as (x_min, y_min, x_max, y_max).
+    dim_x : int
+        Which dimension is on the x-axis.
+    dim_y : int
+        Which dimension is on the y-axis.
+    chunk_shape : tuple, optional
+        Chunk shape for coordinate conversion.
+    bounds_in_array_space : bool
+        Whether bounds are in array space (True) or chunk space (False).
+
+    Returns
+    -------
+    QueryMetrics
+        Performance metrics for the selection.
+    """
+    from vzviz.core import get_array
+
+    array = get_array(store, variable)
+    shape = array.shape
+    chunks = array.chunks
+
+    x_min, y_min, x_max, y_max = bounds
+
+    # Convert to array indices if in chunk space
+    if not bounds_in_array_space:
+        x_min = int(x_min) * chunks[dim_x]
+        x_max = (int(x_max) + 1) * chunks[dim_x]
+        y_min = int(y_min) * chunks[dim_y]
+        y_max = (int(y_max) + 1) * chunks[dim_y]
+
+    # Clamp to array bounds
+    x_min = max(0, int(x_min))
+    x_max = min(shape[dim_x], int(x_max))
+    y_min = max(0, int(y_min))
+    y_max = min(shape[dim_y], int(y_max))
+
+    # Build query dict - select full range for other dimensions
+    query = {}
+    for i, s in enumerate(shape):
+        if i == dim_x:
+            query[i] = slice(x_min, x_max)
+        elif i == dim_y:
+            query[i] = slice(y_min, y_max)
+        else:
+            query[i] = slice(0, s)
+
+    return simulate_query(store, variable, query)
 
 
 def compare_queries(

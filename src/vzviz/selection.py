@@ -63,6 +63,29 @@ class SelectionState(param.Parameterized):
         doc="Which dimension is displayed on y-axis.",
     )
 
+    chunk_shape = param.Parameter(
+        default=None,
+        allow_None=True,
+        doc="Chunk shape (tuple) for converting array coords to chunk indices.",
+    )
+
+    bounds_in_array_space = param.Boolean(
+        default=True,
+        doc="Whether bounds are in array space (True) or chunk space (False).",
+    )
+
+    bounds_variable = param.String(
+        default=None,
+        allow_None=True,
+        doc="Variable name that bounds apply to (for correct chunk matching).",
+    )
+
+    slice_indices = param.Parameter(
+        default=None,
+        allow_None=True,
+        doc="Fixed indices for dimensions not displayed {dim: index}.",
+    )
+
     @property
     def has_selection(self) -> bool:
         """Return True if any selection is active."""
@@ -97,24 +120,27 @@ class SelectionState(param.Parameterized):
     def clear_selection(self) -> None:
         """Clear any selection."""
         self.bounds = None
+        self.bounds_variable = None
+        self.slice_indices = None
         self.selected_variables = []
 
     def set_selected_variables(self, variables: list[str]) -> None:
         """Set the selected variables."""
         self.selected_variables = list(variables) if variables else []
 
-    def get_selected_chunk_keys(self, df: "pd.DataFrame") -> set[str]:
+    def get_selected_chunk_keys(
+        self, df: "pd.DataFrame", for_highlighting: bool = False
+    ) -> set[str]:
         """
         Get all chunk keys matching the current selection.
-
-        Selection can be based on:
-        - Region bounds from heatmap box selection
-        - Selected variables from overview table
 
         Parameters
         ----------
         df : pd.DataFrame
             DataFrame with chunk data including dim_X columns and variable column.
+        for_highlighting : bool
+            If True, only return chunks from bounds selection (for yellow highlighting).
+            If False, also include all chunks from selected variables (for stats).
 
         Returns
         -------
@@ -126,25 +152,57 @@ class SelectionState(param.Parameterized):
 
         selected_keys = set()
 
-        # Filter by selected variables
-        if self.selected_variables and "variable" in df.columns:
-            var_mask = df["variable"].isin(self.selected_variables)
-            selected_keys.update(df.loc[var_mask, "chunk_key"].astype(str))
-
-        # Filter by bounds (only if bounds are set)
+        # Bounds from ChunkMap (used for both highlighting and stats)
         if self.bounds is not None:
             x_min, y_min, x_max, y_max = self.bounds
             x_col = f"dim_{self.dim_x}"
             y_col = f"dim_{self.dim_y}"
 
+            # Convert array coords to chunk indices if needed
+            if self.bounds_in_array_space and self.chunk_shape is not None:
+                chunk_size_x = self.chunk_shape[self.dim_x]
+                chunk_size_y = self.chunk_shape[self.dim_y]
+                # Convert array indices to chunk indices
+                x_min_chunk = int(x_min // chunk_size_x)
+                x_max_chunk = int(x_max // chunk_size_x)
+                y_min_chunk = int(y_min // chunk_size_y)
+                y_max_chunk = int(y_max // chunk_size_y)
+            else:
+                x_min_chunk = int(round(x_min))
+                x_max_chunk = int(round(x_max))
+                y_min_chunk = int(round(y_min))
+                y_max_chunk = int(round(y_max))
+
             if x_col in df.columns and y_col in df.columns:
                 bounds_mask = (
-                    (df[x_col] >= int(round(x_min)))
-                    & (df[x_col] <= int(round(x_max)))
-                    & (df[y_col] >= int(round(y_min)))
-                    & (df[y_col] <= int(round(y_max)))
+                    (df[x_col] >= x_min_chunk)
+                    & (df[x_col] <= x_max_chunk)
+                    & (df[y_col] >= y_min_chunk)
+                    & (df[y_col] <= y_max_chunk)
                 )
+
+                # If bounds are from a specific variable's ChunkMap, only match that variable
+                if self.bounds_variable is not None and "variable" in df.columns:
+                    bounds_mask = bounds_mask & (df["variable"] == self.bounds_variable)
+
+                # Filter by slice indices for dimensions not displayed (N-D arrays)
+                if self.slice_indices:
+                    for dim, idx in self.slice_indices.items():
+                        dim_col = f"dim_{dim}"
+                        if dim_col in df.columns:
+                            bounds_mask = bounds_mask & (df[dim_col] == idx)
+
                 selected_keys.update(df.loc[bounds_mask, "chunk_key"].astype(str))
+
+        # Variable selection only used for stats, not for highlighting
+        if (
+            not for_highlighting
+            and self.selected_variables
+            and "variable" in df.columns
+        ):
+            # Include all chunks from selected variables (for stats display)
+            var_mask = df["variable"].isin(self.selected_variables)
+            selected_keys.update(df.loc[var_mask, "chunk_key"].astype(str))
 
         return selected_keys
 

@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
 import pandas as pd
 
 from vzviz.core import get_array, get_dimension_names, manifest_to_dataframe
-from vzviz.utils import get_colormap
 
 if TYPE_CHECKING:
     from virtualizarr.manifests import ManifestStore
@@ -21,18 +19,15 @@ def chunk_file_heatmap(
     dim_x: int = -1,
     dim_y: int = -2,
     slice_indices: dict[int, int] | None = None,
-    color_by: Literal["file", "offset", "length"] = "file",
-    cmap: str | None = None,
     width: int = 600,
     height: int = 400,
-    backend: Literal["holoviews", "matplotlib"] = "holoviews",
     title: str | None = None,
 ) -> Any:
     """
-    Create a heatmap showing which files contain which chunks.
+    Create a heatmap showing chunk positions in array index space.
 
-    Each cell represents a chunk in the chunk grid, colored by the source file,
-    byte offset, or chunk length.
+    Each cell represents a chunk, colored by the variable's color (consistent
+    with the ByteMap). Cells span the array indices they contain.
 
     Parameters
     ----------
@@ -47,26 +42,17 @@ def chunk_file_heatmap(
     slice_indices : dict, optional
         For N-D arrays (N>2), specify fixed indices for dimensions not displayed.
         E.g., {0: 5, 2: 0} fixes dimension 0 to chunk index 5 and dimension 2 to 0.
-    color_by : {"file", "offset", "length"}
-        What to color cells by:
-        - "file": categorical color by source file
-        - "offset": continuous color by byte offset
-        - "length": continuous color by chunk length
-    cmap : str, optional
-        Colormap name. Default uses categorical for "file", viridis for others.
     width : int
         Plot width in pixels.
     height : int
         Plot height in pixels.
-    backend : {"holoviews", "matplotlib"}
-        Visualization backend to use.
     title : str, optional
         Plot title. Auto-generated if None.
 
     Returns
     -------
-    holoviews.HeatMap or matplotlib.Figure
-        The visualization object from the selected backend.
+    holoviews.Overlay
+        The visualization object.
 
     Examples
     --------
@@ -82,6 +68,8 @@ def chunk_file_heatmap(
         raise ValueError("Manifest contains no chunks")
 
     grid_shape = array.manifest.shape_chunk_grid
+    array_shape = array.shape
+    chunk_shape = array.chunks
     ndim = len(grid_shape)
 
     if ndim < 1:
@@ -98,39 +86,26 @@ def chunk_file_heatmap(
     if plot_df.empty:
         raise ValueError("No data after applying slice_indices")
 
+    # Convert chunk indices to array index coordinates
+    plot_df = _add_array_coordinates(
+        plot_df, array_shape, chunk_shape, dim_x_idx, dim_y_idx
+    )
+
     if title is None:
-        title = f"Chunk-to-File Map: {variable} (Grid: {grid_shape})"
+        title = f"ChunkMap: {variable} (Grid: {grid_shape})"
 
     dim_names = get_dimension_names(store, variable)
 
-    if backend == "holoviews":
-        return _heatmap_holoviews(
-            plot_df,
-            dim_x_idx,
-            dim_y_idx,
-            color_by,
-            cmap,
-            width,
-            height,
-            title,
-            dim_names,
-        )
-    elif backend == "matplotlib":
-        return _heatmap_matplotlib(
-            plot_df,
-            dim_x_idx,
-            dim_y_idx,
-            color_by,
-            cmap,
-            width,
-            height,
-            title,
-            dim_names,
-        )
-    else:
-        raise ValueError(
-            f"Unknown backend: {backend}. Use 'holoviews' or 'matplotlib'."
-        )
+    return _heatmap_holoviews(
+        plot_df,
+        dim_x_idx,
+        dim_y_idx,
+        variable,
+        width,
+        height,
+        title,
+        dim_names,
+    )
 
 
 def _resolve_dim_index(dim: int, ndim: int) -> int:
@@ -142,6 +117,76 @@ def _resolve_dim_index(dim: int, ndim: int) -> int:
         raise ValueError(f"Dimension {dim} out of range for {ndim}-dimensional array")
 
     return dim
+
+
+def _add_array_coordinates(
+    df: pd.DataFrame,
+    array_shape: tuple,
+    chunk_shape: tuple,
+    dim_x: int,
+    dim_y: int | None,
+) -> pd.DataFrame:
+    """Add array index coordinates based on chunk indices.
+
+    For each chunk, computes the center array index and the span (width/height)
+    of that chunk in array index space.
+    """
+    df = df.copy()
+
+    # X dimension - compute center and width
+    x_col = f"dim_{dim_x}"
+    if x_col in df.columns:
+        chunk_size_x = chunk_shape[dim_x]
+        array_size_x = array_shape[dim_x]
+
+        # Compute start, end, center for each chunk
+        df["x_start"] = df[x_col] * chunk_size_x
+        df["x_end"] = ((df[x_col] + 1) * chunk_size_x).clip(upper=array_size_x)
+        df["x_center"] = (df["x_start"] + df["x_end"]) / 2
+        df["x_width"] = df["x_end"] - df["x_start"]
+
+    # Y dimension - compute center and height
+    if dim_y is not None:
+        y_col = f"dim_{dim_y}"
+        if y_col in df.columns:
+            chunk_size_y = chunk_shape[dim_y]
+            array_size_y = array_shape[dim_y]
+
+            df["y_start"] = df[y_col] * chunk_size_y
+            df["y_end"] = ((df[y_col] + 1) * chunk_size_y).clip(upper=array_size_y)
+            df["y_center"] = (df["y_start"] + df["y_end"]) / 2
+            df["y_height"] = df["y_end"] - df["y_start"]
+
+    return df
+
+
+def _compute_effective_slice_indices(
+    df: pd.DataFrame,
+    ndim: int,
+    dim_x: int,
+    dim_y: int | None,
+    slice_indices: dict[int, int] | None,
+) -> dict[int, int]:
+    """Compute effective slice indices including defaults for non-displayed dims."""
+    if slice_indices is None:
+        slice_indices = {}
+
+    display_dims = {dim_x}
+    if dim_y is not None:
+        display_dims.add(dim_y)
+
+    effective = {}
+    for dim in range(ndim):
+        if dim not in display_dims:
+            col = f"dim_{dim}"
+            if col in df.columns:
+                if dim in slice_indices:
+                    effective[dim] = slice_indices[dim]
+                else:
+                    # Default to first value (same as _apply_slicing)
+                    effective[dim] = int(df[col].min())
+
+    return effective
 
 
 def _apply_slicing(
@@ -178,8 +223,7 @@ def _heatmap_holoviews(
     df: pd.DataFrame,
     dim_x: int,
     dim_y: int | None,
-    color_by: str,
-    cmap: str | None,
+    variable: str,
     width: int,
     height: int,
     title: str,
@@ -189,39 +233,17 @@ def _heatmap_holoviews(
     from vzviz._compat import import_holoviews
 
     hv = import_holoviews()
-    prepared_df, color_col, resolved_cmap = _prepare_heatmap_data(df, color_by, cmap)
     return _create_heatmap_plot(
         hv,
-        prepared_df,
+        df,
         dim_x,
         dim_y,
-        color_col,
-        resolved_cmap,
+        variable,
         width,
         height,
         title,
         dim_names=dim_names,
     )
-
-
-def _prepare_heatmap_data(
-    df: pd.DataFrame,
-    color_by: str,
-    cmap: str | None,
-) -> tuple[pd.DataFrame, str, str]:
-    """Prepare DataFrame for heatmap visualization."""
-    if color_by == "file":
-        unique_files = df["path"].unique()
-        file_to_idx = {f: i for i, f in enumerate(unique_files)}
-        df = df.copy()
-        df["color_val"] = df["path"].map(file_to_idx)
-        color_col = "color_val"
-        resolved_cmap = cmap if cmap is not None else "Category20"
-    else:
-        color_col = color_by if color_by in df.columns else "offset"
-        resolved_cmap = cmap if cmap is not None else "viridis"
-
-    return df, color_col, resolved_cmap
 
 
 def _get_dim_label(dim_idx: int, dim_names: list[str] | None) -> str:
@@ -236,8 +258,7 @@ def _create_heatmap_plot(
     df: pd.DataFrame,
     dim_x: int,
     dim_y: int | None,
-    color_col: str,
-    cmap: str,
+    variable: str,
     width: int,
     height: int,
     title: str,
@@ -246,22 +267,82 @@ def _create_heatmap_plot(
     interactive: bool = False,
 ) -> Any:
     """Create the heatmap plot with optional selection rectangle."""
-    x_col = f"dim_{dim_x}"
-    y_col = f"dim_{dim_y}" if dim_y is not None else None
+    from vzviz.utils import get_variable_color_map
 
     x_label = _get_dim_label(dim_x, dim_names)
     y_label = _get_dim_label(dim_y, dim_names) if dim_y is not None else None
 
+    # Get the variable's color (consistent with ByteMap)
+    var_color = get_variable_color_map([variable])[variable]
+
     # Tools for interactive mode include box_select
     tools = ["hover", "box_select"] if interactive else ["hover"]
 
-    if y_col is not None and y_col in df.columns:
+    # Check if we have array coordinates (x_start, x_end, etc.)
+    has_array_coords = "x_start" in df.columns and "x_end" in df.columns
+
+    if dim_y is not None and has_array_coords and "y_start" in df.columns:
+        # Use Rectangles for proper array index display
+        # Each rectangle spans the array indices contained in that chunk
+        rects_data = df[
+            [
+                "x_start",
+                "y_start",
+                "x_end",
+                "y_end",
+                "chunk_key",
+                "filename",
+                "offset",
+                "length",
+            ]
+        ].copy()
+
+        heatmap = hv.Rectangles(
+            rects_data,
+            kdims=["x_start", "y_start", "x_end", "y_end"],
+            vdims=["chunk_key", "filename", "offset", "length"],
+        ).opts(
+            fill_color=var_color,
+            fill_alpha=1.0,
+            width=width,
+            height=height,
+            title=title,
+            tools=tools,
+            xlabel=x_label,
+            ylabel=y_label,
+            line_color="white",
+            line_width=1,
+        )
+
+        # Selection rectangle in array index space
+        if selection_bounds is not None:
+            x_min, y_min, x_max, y_max = selection_bounds
+            selection_rect = hv.Rectangles([(x_min, y_min, x_max, y_max)]).opts(
+                fill_alpha=0.2,
+                fill_color="#FFFF00",
+                line_color="#FFFF00",
+                line_width=3,
+            )
+        else:
+            selection_rect = hv.Rectangles([]).opts(fill_alpha=0, line_alpha=0)
+
+        return heatmap * selection_rect
+
+    elif dim_y is not None:
+        # Fallback to HeatMap with chunk indices (no array coords available)
+        x_col = f"dim_{dim_x}"
+        y_col = f"dim_{dim_y}"
+
+        # Create a constant color column for HeatMap
+        df = df.copy()
+        df["_color"] = 1
+
         heatmap = hv.HeatMap(
             df,
             kdims=[x_col, y_col],
-            vdims=[color_col, "chunk_key", "filename", "offset", "length"],
+            vdims=["_color", "chunk_key", "filename", "offset", "length"],
         ).opts(
-            cmap=cmap,
+            cmap=[var_color],
             colorbar=False,
             width=width,
             height=height,
@@ -269,10 +350,10 @@ def _create_heatmap_plot(
             tools=tools,
             xlabel=x_label,
             ylabel=y_label,
+            line_color="white",
+            line_width=1,
         )
 
-        # Always create selection rectangle (invisible if no selection)
-        # This ensures consistent return type for DynamicMap
         if selection_bounds is not None:
             x_min, y_min, x_max, y_max = selection_bounds
             rect_bounds = (x_min - 0.5, y_min - 0.5, x_max + 0.5, y_max + 0.5)
@@ -283,24 +364,43 @@ def _create_heatmap_plot(
                 line_width=3,
             )
         else:
-            # Invisible placeholder rectangle to maintain consistent type
             selection_rect = hv.Rectangles([]).opts(fill_alpha=0, line_alpha=0)
 
         return heatmap * selection_rect
     else:
-        heatmap = hv.Bars(
-            df,
-            kdims=[x_col],
-            vdims=[color_col, "chunk_key", "filename", "offset", "length"],
-        ).opts(
-            color=color_col,
-            cmap=cmap,
-            width=width,
-            height=height,
-            title=title,
-            tools=tools,
-            xlabel=x_label,
-        )
+        # 1D case - use bars with array index coordinates if available
+        x_col = f"dim_{dim_x}"
+
+        if has_array_coords:
+            # Use x_center for bar position
+            bar_df = df[
+                ["chunk_key", "filename", "offset", "length", "x_center"]
+            ].copy()
+            heatmap = hv.Bars(
+                bar_df,
+                kdims=["x_center"],
+                vdims=["chunk_key", "filename", "offset", "length"],
+            ).opts(
+                color=var_color,
+                width=width,
+                height=height,
+                title=title,
+                tools=tools,
+                xlabel=x_label,
+            )
+        else:
+            heatmap = hv.Bars(
+                df,
+                kdims=[x_col],
+                vdims=["chunk_key", "filename", "offset", "length"],
+            ).opts(
+                color=var_color,
+                width=width,
+                height=height,
+                title=title,
+                tools=tools,
+                xlabel=x_label,
+            )
 
         # Always create selection span (invisible if no selection)
         if selection_bounds is not None:
@@ -325,8 +425,6 @@ def chunk_file_heatmap_interactive(
     dim_x: int = -1,
     dim_y: int = -2,
     slice_indices: dict[int, int] | None = None,
-    color_by: Literal["file", "offset", "length"] = "file",
-    cmap: str | None = None,
     width: int = 600,
     height: int = 400,
     title: str | None = None,
@@ -335,8 +433,9 @@ def chunk_file_heatmap_interactive(
     Create interactive heatmap with box selection for cross-panel synchronization.
 
     Use the box select tool to select a region of chunks. The selection will
-    be synchronized with other panels (e.g., byte range chart) that share the
-    same SelectionState.
+    be synchronized with other panels (e.g., ByteMap) that share the
+    same SelectionState. Cells are colored by variable (consistent with byte
+    range chart) and span the array indices they contain.
 
     Parameters
     ----------
@@ -353,10 +452,6 @@ def chunk_file_heatmap_interactive(
         Dimension to display on y-axis.
     slice_indices : dict, optional
         For N-D arrays (N>2), specify fixed indices for dimensions not displayed.
-    color_by : {"file", "offset", "length"}
-        What to color cells by.
-    cmap : str, optional
-        Colormap name.
     width : int
         Plot width in pixels.
     height : int
@@ -385,6 +480,8 @@ def chunk_file_heatmap_interactive(
         raise ValueError("Manifest contains no chunks")
 
     grid_shape = array.manifest.shape_chunk_grid
+    array_shape = array.shape
+    chunk_shape = array.chunks
     ndim = len(grid_shape)
 
     if ndim < 1:
@@ -396,22 +493,33 @@ def chunk_file_heatmap_interactive(
     if ndim == 1:
         dim_y_idx = None
 
+    # Compute effective slice indices (including defaults for non-displayed dims)
+    effective_slice_indices = _compute_effective_slice_indices(
+        df, ndim, dim_x_idx, dim_y_idx, slice_indices
+    )
+
     plot_df = _apply_slicing(df, ndim, dim_x_idx, dim_y_idx, slice_indices)
 
     if plot_df.empty:
         raise ValueError("No data after applying slice_indices")
 
-    if title is None:
-        title = f"Chunk-to-File Map: {variable} (Grid: {grid_shape})"
-
-    prepared_df, color_col, resolved_cmap = _prepare_heatmap_data(
-        plot_df, color_by, cmap
+    # Convert chunk indices to array index coordinates
+    plot_df = _add_array_coordinates(
+        plot_df, array_shape, chunk_shape, dim_x_idx, dim_y_idx
     )
+
+    if title is None:
+        title = f"ChunkMap: {variable} (Grid: {grid_shape})"
+
     dim_names = get_dimension_names(store, variable)
 
-    # Store dimension info in selection state
+    # Store dimension and chunk info in selection state
     selection_state.dim_x = dim_x_idx
     selection_state.dim_y = dim_y_idx if dim_y_idx is not None else 0
+    selection_state.chunk_shape = chunk_shape
+    selection_state.bounds_in_array_space = True
+    selection_state.bounds_variable = variable
+    selection_state.slice_indices = effective_slice_indices
 
     # Track last bounds to avoid redundant updates
     last_bounds: dict[str, tuple | None] = {"value": None}
@@ -427,11 +535,10 @@ def chunk_file_heatmap_interactive(
         # Use selection state bounds for rendering
         return _create_heatmap_plot(
             hv,
-            prepared_df,
+            plot_df,
             dim_x_idx,
             dim_y_idx,
-            color_col,
-            resolved_cmap,
+            variable,
             width,
             height,
             title,
@@ -447,86 +554,3 @@ def chunk_file_heatmap_interactive(
     dmap = hv.DynamicMap(render_heatmap, streams=[bounds_stream])
 
     return pn.pane.HoloViews(dmap)
-
-
-def _heatmap_matplotlib(
-    df: pd.DataFrame,
-    dim_x: int,
-    dim_y: int | None,
-    color_by: str,
-    cmap: str | None,
-    width: int,
-    height: int,
-    title: str,
-    dim_names: list[str] | None = None,
-) -> Any:
-    """Create heatmap using matplotlib."""
-    from vzviz._compat import import_matplotlib
-
-    plt = import_matplotlib()
-    import matplotlib.colors as mcolors
-
-    fig_width = width / 100
-    fig_height = height / 100
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-
-    x_col = f"dim_{dim_x}"
-    y_col = f"dim_{dim_y}" if dim_y is not None else None
-
-    x_label = _get_dim_label(dim_x, dim_names)
-    y_label = _get_dim_label(dim_y, dim_names) if dim_y is not None else None
-
-    if y_col is not None and y_col in df.columns:
-        x_vals = sorted(df[x_col].unique())
-        y_vals = sorted(df[y_col].unique())
-
-        if color_by == "file":
-            unique_files = list(df["path"].unique())
-            file_to_idx = {f: i for i, f in enumerate(unique_files)}
-            n_files = len(unique_files)
-
-            grid = np.full((len(y_vals), len(x_vals)), np.nan)
-            for _, row in df.iterrows():
-                xi = x_vals.index(row[x_col])
-                yi = y_vals.index(row[y_col])
-                grid[yi, xi] = file_to_idx[row["path"]]
-
-            colors = get_colormap(n_files)
-            cmap_obj = mcolors.ListedColormap(colors)
-            im = ax.imshow(grid, cmap=cmap_obj, aspect="auto", origin="lower")
-        else:
-            color_col = color_by if color_by in df.columns else "offset"
-            grid = np.full((len(y_vals), len(x_vals)), np.nan)
-            for _, row in df.iterrows():
-                xi = x_vals.index(row[x_col])
-                yi = y_vals.index(row[y_col])
-                grid[yi, xi] = row[color_col]
-
-            im = ax.imshow(grid, cmap=cmap or "viridis", aspect="auto", origin="lower")
-            plt.colorbar(im, ax=ax, label=color_by.capitalize())
-
-        ax.set_xticks(range(len(x_vals)))
-        ax.set_xticklabels(x_vals)
-        ax.set_yticks(range(len(y_vals)))
-        ax.set_yticklabels(y_vals)
-        ax.set_xlabel(x_label)
-        ax.set_ylabel(y_label)
-    else:
-        x_vals = sorted(df[x_col].unique())
-        if color_by == "file":
-            unique_files = list(df["path"].unique())
-            file_to_idx = {f: i for i, f in enumerate(unique_files)}
-            colors = get_colormap(len(unique_files))
-            bar_colors = [
-                colors[file_to_idx[df[df[x_col] == x]["path"].iloc[0]]] for x in x_vals
-            ]
-        else:
-            bar_colors = ["#1f77b4"] * len(x_vals)
-
-        heights = [1] * len(x_vals)
-        ax.bar(x_vals, heights, color=bar_colors)
-        ax.set_xlabel(x_label)
-
-    ax.set_title(title)
-    plt.tight_layout()
-    return fig

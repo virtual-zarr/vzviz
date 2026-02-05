@@ -3,26 +3,23 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #     "earthaccess",
-#     "virtualizarr[hdf]",
-#     "vzviz",
-#     "obspec-utils",
+#     "virtualizarr[hdf] @ git+https://github.com/maxrjones/VirtualiZarr@c-dtype",
+#     "vzviz @ git+https://github.com/virtual-zarr/vzviz",
+#     "obspec-utils @ git+https://github.com/developmentseed/obspec-utils",
 #     "aiohttp",
 #     "panel",
 #     "holoviews",
 #     "bokeh",
 #     "colorcet",
 # ]
-#
-# [tool.uv.sources]
-# vzviz = { path = "/Users/max/Documents/Code/claude-workspaces/virtualizarr/vzviz", editable = true }
 # ///
 """
-MUR SST Manifest Explorer
+NISAR Manifest Explorer
 
-Launch an interactive dashboard to explore the chunk manifest of a MUR SST file.
+Launch an interactive dashboard to explore the chunk manifest of a NISAR HDF5 file.
 
 Usage:
-    uv run examples/mur_sst_explorer.py
+    uv run examples/nisar_explorer.py
 """
 
 from urllib.parse import urlparse
@@ -39,13 +36,15 @@ def main():
     print("Authenticating with NASA Earthdata...")
     earthaccess.login()
 
-    print("Searching for MUR SST data...")
-    results = earthaccess.search_data(
-        concept_id="C1996881146-POCLOUD",
-        count=1,
-        temporal=("2002-06-01", "2002-06-01"),
-    )
+    print("Searching for NISAR data...")
+    query = earthaccess.DataGranules()
+    query.short_name("NISAR_L2_GCOV_BETA_V1")
+    query.params["attribute[]"] = "int,FRAME_NUMBER,77"
+    query.params["attribute[]"] = "int,TRACK_NUMBER,5"
+    results = query.get_all()
+    print(f"Found {len(results)} granules")
 
+    # Get the HTTPS URL
     https_links = earthaccess.results.DataGranule.data_links(
         results[0], access="external"
     )
@@ -64,7 +63,7 @@ def main():
     )
     registry = ObjectStoreRegistry({base_url: store})
 
-    print("Parsing NetCDF file...")
+    print("Parsing HDF5 file...")
     parser = vz.parsers.HDFParser()
     manifest_store = parser(https_url, registry=registry)
     print("ManifestStore created!")
@@ -72,7 +71,7 @@ def main():
     # Create and serve dashboard
     print("\nLaunching dashboard...")
     dashboard = vzviz.manifest_dashboard(manifest_store)
-    dashboard.show(title="MUR SST Manifest Explorer")
+    dashboard.show(title="NISAR Manifest Explorer")
 
 
 if __name__ == "__main__":
