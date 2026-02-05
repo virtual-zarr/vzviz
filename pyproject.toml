@@ -37,14 +37,6 @@ dependencies = [
   "panel>=1.0",
 ]
 
-[project.optional-dependencies]
-matplotlib = [
-  "matplotlib>=3.7",
-]
-
-[project.scripts]
-vzviz = "vzviz.cli:main"
-
 [project.urls]
 Issues = "https://github.com/virtual-zarr/vzviz/issues"
 Source = "https://github.com/virtual-zarr/vzviz"
