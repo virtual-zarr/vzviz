@@ -230,9 +230,9 @@ def _heatmap_holoviews(
     dim_names: list[str] | None = None,
 ) -> Any:
     """Create heatmap using holoviews."""
-    from vzviz._compat import import_holoviews
+    import holoviews as hv
 
-    hv = import_holoviews()
+    hv.extension("bokeh")
     return _create_heatmap_plot(
         hv,
         df,
@@ -464,11 +464,12 @@ def chunk_file_heatmap_interactive(
     panel.pane.HoloViews
         Interactive Panel component with box selection support.
     """
-    from vzviz._compat import import_holoviews, import_panel
+    import holoviews as hv
+    import panel as pn
+
     from vzviz.selection import SelectionState
 
-    hv = import_holoviews()
-    pn = import_panel()
+    hv.extension("bokeh")
 
     if selection_state is None:
         selection_state = SelectionState()

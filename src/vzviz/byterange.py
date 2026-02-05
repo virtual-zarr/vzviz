@@ -8,7 +8,6 @@ import pandas as pd
 
 from vzviz.core import manifest_to_dataframe
 from vzviz.utils import (
-    format_bytes,
     get_colormap,
     get_variable_color_map,
     truncate_path,
@@ -28,7 +27,6 @@ def byte_range_chart(
     show_gaps: bool = False,
     width: int = 900,
     height: int | None = None,
-    backend: Literal["holoviews", "matplotlib"] = "holoviews",
     title: str | None = None,
 ) -> Any:
     """
@@ -65,15 +63,13 @@ def byte_range_chart(
         Plot width in pixels.
     height : int, optional
         Plot height in pixels. If None, auto-calculated based on file count.
-    backend : {"holoviews", "matplotlib"}
-        Visualization backend to use.
     title : str, optional
         Plot title. Auto-generated if None.
 
     Returns
     -------
-    holoviews.Layout or matplotlib.Figure
-        The visualization object from the selected backend.
+    holoviews.Overlay
+        The visualization object.
 
     Examples
     --------
@@ -98,16 +94,7 @@ def byte_range_chart(
         total_files = df["path"].nunique()
         title = f"ByteMap ({total_chunks} chunks across {total_files} files)"
 
-    if backend == "holoviews":
-        return _byte_range_holoviews(plot_df, width, height, title, color_by, show_gaps)
-    elif backend == "matplotlib":
-        return _byte_range_matplotlib(
-            plot_df, width, height, title, color_by, show_gaps
-        )
-    else:
-        raise ValueError(
-            f"Unknown backend: {backend}. Use 'holoviews' or 'matplotlib'."
-        )
+    return _byte_range_holoviews(plot_df, width, height, title, color_by, show_gaps)
 
 
 def _prepare_byterange_data(
@@ -189,9 +176,9 @@ def _byte_range_holoviews(
     show_gaps: bool,
 ) -> Any:
     """Create byte range chart using holoviews."""
-    from vzviz._compat import import_holoviews
+    import holoviews as hv
 
-    hv = import_holoviews()
+    hv.extension("bokeh")
 
     seg_df = _prepare_segments_df(df)
     y_labels = df[["y_pos", "y_label"]].drop_duplicates().sort_values("y_pos")
@@ -507,11 +494,12 @@ def byte_range_chart_interactive(
         Interactive Panel component with selection highlighting.
         If include_toggle=True, returns a Column with toggle and chart.
     """
-    from vzviz._compat import import_holoviews, import_panel
+    import holoviews as hv
+    import panel as pn
+
     from vzviz.selection import SelectionState
 
-    hv = import_holoviews()
-    pn = import_panel()
+    hv.extension("bokeh")
 
     if selection_state is None:
         selection_state = SelectionState()
@@ -621,48 +609,3 @@ def byte_range_chart_interactive(
     dmap = hv.DynamicMap(render_with_selection, streams=[param_stream])
 
     return pn.pane.HoloViews(dmap)
-
-
-def _byte_range_matplotlib(
-    df: pd.DataFrame,
-    width: int,
-    height: int,
-    title: str,
-    color_by: str,
-    show_gaps: bool,
-) -> Any:
-    """Create byte range chart using matplotlib."""
-    from vzviz._compat import import_matplotlib
-
-    plt = import_matplotlib()
-
-    fig_width = width / 100
-    fig_height = height / 100
-
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-
-    y_labels = df[["y_pos", "y_label"]].drop_duplicates().sort_values("y_pos")
-
-    bar_height = 0.6
-    for _, row in df.iterrows():
-        ax.barh(
-            y=row["y_pos"],
-            width=row["length"],
-            left=row["offset"],
-            height=bar_height,
-            color=row["color"],
-            edgecolor="white",
-            linewidth=0.5,
-        )
-
-    ax.set_yticks(y_labels["y_pos"])
-    ax.set_yticklabels(y_labels["y_label"])
-    ax.invert_yaxis()
-
-    ax.set_xlabel("Offset (MB)")
-    ax.set_title(title)
-
-    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: format_bytes(int(x))))
-
-    plt.tight_layout()
-    return fig

@@ -59,10 +59,10 @@ def manifest_dashboard(
     >>> dashboard = manifest_dashboard(store)
     >>> dashboard.show()  # Opens in browser
     """
-    from vzviz._compat import import_holoviews, import_panel
+    import holoviews as hv
+    import panel as pn
 
-    pn = import_panel()
-    hv = import_holoviews()  # noqa
+    hv.extension("bokeh")
 
     # Create shared selection state if interactive mode is enabled
     selection_state = None
@@ -202,7 +202,6 @@ def manifest_dashboard(
                 byterange_plot = byte_range_chart(
                     store,
                     variable,
-                    backend="holoviews",
                     width=800,
                 )
                 components.append(pn.pane.HoloViews(byterange_plot))

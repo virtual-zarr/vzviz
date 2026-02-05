@@ -48,7 +48,6 @@ dev = [
   "pytest-cov",
   "coverage",
   "mypy",
-  "matplotlib>=3.7",
 ]
 
 [tool.hatch.metadata]
