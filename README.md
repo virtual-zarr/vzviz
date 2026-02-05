@@ -1,121 +1,165 @@
-# virtualizarr-viz
+# vzviz
 
-Visualization tools for [VirtualiZarr](https://github.com/zarr-developers/VirtualiZarr) chunk manifests.
+Visualization and analysis tools for [VirtualiZarr](https://github.com/zarr-developers/VirtualiZarr) ManifestStore.
+
+Inspired by [vischunk](https://github.com/jkeifer/vischunk) (MIT License, Copyright (c) 2025 Jarrett Keifer) - the query simulation metrics and cross-panel selection architecture are adapted from vischunk's approach.
 
 ## Installation
 
 ```bash
-pip install virtualizarr-viz
-```
-
-For interactive visualizations (recommended):
-
-```bash
-pip install 'virtualizarr-viz[holoviews]'
-```
-
-For static matplotlib plots:
-
-```bash
-pip install 'virtualizarr-viz[matplotlib]'
+pip install vzviz
 ```
 
 ## Usage
 
-### Python API
+All functions work directly with `ManifestStore` - the output of VirtualiZarr parsers:
 
 ```python
-from virtualizarr import open_virtual_dataset
-from virtualizarr_viz import byte_range_chart, chunk_file_heatmap, manifest_summary
+from virtualizarr.parsers import HDFParser
+from obspec_utils.registry import ObjectStoreRegistry
+import vzviz
 
-# Open a virtual dataset
-vds = open_virtual_dataset("data.nc")
+# Parse a file to get a ManifestStore
+parser = HDFParser()
+store = parser(url, registry)
+
+# Overview of all variables
+overview = vzviz.variables_overview(store)
+print(overview)
+
+# Detailed chunk grid info for a variable
+info = vzviz.chunk_grid_info(store, "science/LSAR/data")
+print(info)
+
+# Simulate a query and get vischunk-like metrics
+metrics = vzviz.simulate_query(
+    store,
+    "science/LSAR/data",
+    query={0: slice(0, 100), 1: slice(0, 500)}
+)
+print(metrics)
+# Output:
+#   Requested Cells:   50,000
+#   Cells Read:        125,000
+#   Read Amplification: 2.50x
+#   Read Efficiency:   40.0%
+#   Chunks Touched:    25
+#   Range Reads:       12
+#   Coalescing Factor: 2.08x
+
+# Compare different query patterns
+comparison = vzviz.compare_queries(
+    store,
+    "temperature",
+    queries=[
+        {0: slice(0, 10)},      # Time slice
+        {1: slice(0, 50), 2: slice(0, 50)},  # Spatial subset
+    ],
+    names=["time_slice", "spatial_subset"]
+)
+print(comparison)
 
 # Byte range chart - shows chunk positions within files
-byte_range_chart(vds, "temperature")
+vzviz.byte_range_chart(store, "temperature")
 
 # Chunk-to-file heatmap - 2D grid colored by source file
-chunk_file_heatmap(vds, "temperature")
+vzviz.chunk_file_heatmap(store, "temperature")
 
-# Summary statistics
-summary = manifest_summary(vds, "temperature")
-print(summary.T)
-
-# Interactive dashboard with all visualizations
-from virtualizarr_viz import manifest_dashboard
-dashboard = manifest_dashboard(vds, "temperature")
+# Interactive dashboard with cross-panel selection
+# Click a chunk in one panel to highlight it in all panels
+dashboard = vzviz.manifest_dashboard(store)
 dashboard.show()
 ```
 
-### Command Line
+## Features
 
-```bash
-# Byte range chart (default)
-virtualizarr-viz data.nc -v temperature
+### Variables Overview
 
-# Heatmap
-virtualizarr-viz data.nc -v temperature -k heatmap
+Shows all variables in a file with their shapes, chunk sizes, and storage statistics:
 
-# Summary statistics
-virtualizarr-viz data.nc -v temperature -k summary
-
-# Save to file
-virtualizarr-viz data.nc -v temperature -o chunks.html
-
-# Interactive dashboard
-virtualizarr-viz data.nc -v temperature -k dashboard
+```python
+overview = vzviz.variables_overview(store)
 ```
 
-## Visualizations
+| variable | shape | chunks | dtype | total_chunks | chunk_bytes_human | total_bytes_human |
+|----------|-------|--------|-------|--------------|-------------------|-------------------|
+| science/LSAR/data | (1000, 2000, 500) | (100, 200, 50) | float32 | 500 | 4.0 MB | 2.0 GB |
+
+### Query Simulation (vischunk-inspired)
+
+Simulate data access patterns and get performance metrics:
+
+```python
+metrics = vzviz.simulate_query(store, "variable", {0: slice(0, 100)})
+```
+
+**Metrics returned:**
+- **Requested Cells**: Cells in your query region
+- **Cells Read**: Total cells that must be read due to chunking
+- **Read Amplification**: Ratio of read to requested (lower is better)
+- **Read Efficiency**: Percentage of useful data (higher is better)
+- **Chunks Touched**: Number of chunks intersecting the query
+- **Range Reads**: Number of separate I/O operations needed
+- **Coalescing Factor**: How well chunks combine into fewer reads
 
 ### Byte Range Chart
 
-Shows chunk positions within each file as horizontal segments:
+Visualizes where chunks are located within each file:
 
 ```
-file1.nc  |====|  |====|      |====|
-file2.nc  |==|    |====|  |==|
-file3.nc  |========|          |====|
-          0       500      1000     1500  (bytes)
+file.nc  |====|  |====|      |====|
+         0      500     1000    1500  (bytes)
 ```
-
-- Each file is a row
-- Segments show `[offset, offset+length)` for each chunk
-- Reveals fragmentation, data locality, and gaps between chunks
 
 ### Chunk-to-File Heatmap
 
-2D grid where each cell represents a chunk, colored by:
-- Source file (categorical)
-- Byte offset (continuous)
-- Chunk length (continuous)
+2D grid showing chunk-to-file mapping, useful for understanding data locality.
 
-### Summary Statistics
+### Interactive Dashboard
 
-DataFrames with:
-- Overall statistics: total chunks, unique files, size distribution
-- Per-file breakdown: chunk counts, byte ranges, contiguity
+The dashboard combines all visualizations with **cross-panel selection**:
+- Click a chunk in the byte range chart or heatmap to select it
+- The selected chunk is highlighted in all panels simultaneously
+- A selection panel shows detailed information about the selected chunk
+- Click again to deselect
+
+```python
+dashboard = vzviz.manifest_dashboard(store, variable="temperature")
+dashboard.show()
+```
 
 ## API Reference
 
 ### Core Functions
 
-- `extract_manifest(data, variable)` - Extract ChunkManifest from various inputs
-- `manifest_to_dataframe(data, variable)` - Convert manifest to pandas DataFrame
+- `manifest_to_dataframe(store, variable=None)` - Convert to pandas DataFrame
+- `get_array(store, variable)` - Get a specific ManifestArray
+- `list_variables(store)` - List all variable paths
+- `get_store_info(store)` - Get store statistics
+
+### Variable Analysis
+
+- `variables_overview(store)` - Overview table of all variables
+- `chunk_grid_info(store, variable)` - Detailed chunk grid info
+
+### Query Simulation
+
+- `simulate_query(store, variable, query)` - Simulate a query and get metrics
+- `compare_queries(store, variable, queries, names)` - Compare multiple queries
 
 ### Visualizations
 
-- `byte_range_chart(data, variable, ...)` - Byte range visualization
-- `chunk_file_heatmap(data, variable, ...)` - 2D heatmap
-- `manifest_summary(data, variable)` - Overall statistics
-- `file_summary(data, variable)` - Per-file statistics
-- `manifest_dashboard(data, variable, ...)` - Interactive dashboard
+- `byte_range_chart(store, variable, ...)` - Byte range visualization
+- `byte_range_chart_interactive(store, variable, selection_state, ...)` - With selection support
+- `chunk_file_heatmap(store, variable, ...)` - 2D chunk heatmap
+- `chunk_file_heatmap_interactive(store, variable, selection_state, ...)` - With selection support
+- `manifest_summary(store, variable)` - Overall statistics
+- `file_summary(store, variable)` - Per-file statistics
+- `manifest_dashboard(store, variable, interactive=True)` - Interactive dashboard
 
-### Unified Entry Point
+### Selection State
 
-```python
-visualize_manifest(data, variable, kind="byterange", **kwargs)
-```
+- `SelectionState` - Shared state for cross-panel selection synchronization
 
 ## License
 

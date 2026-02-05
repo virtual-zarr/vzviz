@@ -9,13 +9,13 @@ exclude = [
 ]
 
 [project]
-name = "virtualizarr-viz"
+name = "vzviz"
 dynamic = ["version"]
 description = "Visualization tools for VirtualiZarr chunk manifests"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-keywords = ["virtualizarr", "zarr", "visualization", "chunks"]
+keywords = ["virtualizarr", "zarr", "visualization", "chunks", "vzviz"]
 authors = [
   { name = "Max Jones", email = "14077947+maxrjones@users.noreply.github.com" },
 ]
@@ -31,33 +31,32 @@ dependencies = [
   "virtualizarr>=1.0",
   "pandas>=2.0",
   "numpy>=1.24",
-]
-
-[project.scripts]
-virtualizarr-viz = "virtualizarr_viz.cli:main"
-
-[project.urls]
-Issues = "https://github.com/virtual-zarr/virtualizarr-viz/issues"
-Source = "https://github.com/virtual-zarr/virtualizarr-viz"
-
-[dependency-groups]
-holoviews = [
+  "param>=2.0",
   "holoviews>=1.18",
-  "hvplot>=0.9",
   "bokeh>=3.0",
   "panel>=1.0",
 ]
+
+[project.optional-dependencies]
 matplotlib = [
   "matplotlib>=3.7",
 ]
-test = [
-  "coverage",
-  "pytest",
-  "pytest-cov",
-  "mypy",
-]
+
+[project.scripts]
+vzviz = "vzviz.cli:main"
+
+[project.urls]
+Issues = "https://github.com/virtual-zarr/vzviz/issues"
+Source = "https://github.com/virtual-zarr/vzviz"
+
+[dependency-groups]
 dev = [
   "ipykernel>=6.29.5",
+  "pytest",
+  "pytest-cov",
+  "coverage",
+  "mypy",
+  "matplotlib>=3.7",
 ]
 
 [tool.hatch.metadata]
@@ -70,16 +69,16 @@ version.source = "vcs"
 root = "."
 
 [tool.hatch.build]
-hooks.vcs.version-file = "src/virtualizarr_viz/_version.py"
+hooks.vcs.version-file = "src/vzviz/_version.py"
 
 [tool.coverage.run]
-source_pkgs = ["virtualizarr_viz", "tests"]
+source_pkgs = ["vzviz", "tests"]
 branch = true
 parallel = true
 
 [tool.coverage.paths]
-virtualizarr_viz = ["src/virtualizarr_viz", "*/virtualizarr-viz/src/virtualizarr_viz"]
-tests = ["tests", "*/virtualizarr-viz/tests"]
+vzviz = ["src/vzviz", "*/vzviz/src/vzviz"]
+tests = ["tests", "*/vzviz/tests"]
 
 [tool.coverage.report]
 exclude_lines = [

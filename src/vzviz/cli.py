@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
     pass
+
+BackendType = Literal["holoviews", "matplotlib"]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -25,14 +27,16 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     parser.add_argument(
-        "-v", "--variable",
+        "-v",
+        "--variable",
         type=str,
         default=None,
         help="Variable name to visualize",
     )
 
     parser.add_argument(
-        "-k", "--kind",
+        "-k",
+        "--kind",
         type=str,
         choices=["byterange", "heatmap", "summary", "dashboard"],
         default="byterange",
@@ -40,7 +44,8 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         type=str,
         default=None,
         help="Output file path (HTML for interactive, PNG for static)",
@@ -94,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _run(args: argparse.Namespace) -> int:
     """Execute the visualization."""
-    from virtualizarr_viz._compat import get_default_backend
+    from vzviz._compat import get_default_backend
 
     # Load the dataset
     data = _load_data(args.input)
@@ -145,7 +150,7 @@ def _load_data(input_path: str):
 
 def _run_summary(data, variable: str | None) -> None:
     """Run summary visualization."""
-    from virtualizarr_viz.summary import file_summary, manifest_summary
+    from vzviz.summary import file_summary, manifest_summary
 
     print("\n=== Manifest Summary ===\n")
     summary = manifest_summary(data, variable)
@@ -159,14 +164,14 @@ def _run_summary(data, variable: str | None) -> None:
 
 def _run_byterange(data, args: argparse.Namespace, backend: str):
     """Run byte range visualization."""
-    from virtualizarr_viz.byterange import byte_range_chart
+    from vzviz.byterange import byte_range_chart
 
     return byte_range_chart(
         data,
         variable=args.variable,
         max_files=args.max_files,
         sort_by=args.sort_by,
-        backend=backend,
+        backend=cast(BackendType, backend),
         width=args.width,
         height=args.height,
     )
@@ -174,12 +179,12 @@ def _run_byterange(data, args: argparse.Namespace, backend: str):
 
 def _run_heatmap(data, args: argparse.Namespace, backend: str):
     """Run heatmap visualization."""
-    from virtualizarr_viz.heatmap import chunk_file_heatmap
+    from vzviz.heatmap import chunk_file_heatmap
 
     return chunk_file_heatmap(
         data,
         variable=args.variable,
-        backend=backend,
+        backend=cast(BackendType, backend),
         width=args.width,
         height=args.height or 400,
     )
@@ -187,7 +192,7 @@ def _run_heatmap(data, args: argparse.Namespace, backend: str):
 
 def _run_dashboard(data, args: argparse.Namespace):
     """Run dashboard visualization."""
-    from virtualizarr_viz.dashboard import manifest_dashboard
+    from vzviz.dashboard import manifest_dashboard
 
     return manifest_dashboard(
         data,

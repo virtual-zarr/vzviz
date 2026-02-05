@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 
-from virtualizarr_viz.core import (
+from vzviz.core import (
     _extract_filename,
-    extract_manifest,
     manifest_to_dataframe,
 )
 
@@ -33,27 +31,11 @@ class TestExtractFilename:
         assert _extract_filename("/path/to/dir/") == "dir"
 
 
-class TestExtractManifest:
-    """Tests for extract_manifest function."""
-
-    def test_from_chunk_manifest(self, sample_manifest):
-        result = extract_manifest(sample_manifest)
-        assert result is sample_manifest
-
-    def test_from_manifest_array(self, sample_manifest_array):
-        result = extract_manifest(sample_manifest_array)
-        assert result is sample_manifest_array.manifest
-
-    def test_invalid_type(self):
-        with pytest.raises(TypeError, match="Cannot extract manifest"):
-            extract_manifest("invalid")
-
-
 class TestManifestToDataframe:
     """Tests for manifest_to_dataframe function."""
 
-    def test_basic_conversion(self, sample_manifest):
-        df = manifest_to_dataframe(sample_manifest)
+    def test_basic_conversion(self, sample_store):
+        df = manifest_to_dataframe(sample_store)
 
         assert len(df) == 4
         assert "chunk_key" in df.columns
@@ -64,26 +46,26 @@ class TestManifestToDataframe:
         assert "filename" in df.columns
         assert "file_id" in df.columns
 
-    def test_dimension_columns(self, sample_manifest):
-        df = manifest_to_dataframe(sample_manifest)
+    def test_dimension_columns(self, sample_store):
+        df = manifest_to_dataframe(sample_store)
 
         assert "dim_0" in df.columns
         assert "dim_1" in df.columns
 
-    def test_end_offset_calculation(self, sample_manifest):
-        df = manifest_to_dataframe(sample_manifest)
+    def test_end_offset_calculation(self, sample_store):
+        df = manifest_to_dataframe(sample_store)
 
         for _, row in df.iterrows():
             assert row["end_offset"] == row["offset"] + row["length"]
 
-    def test_file_id_assignment(self, sample_manifest):
-        df = manifest_to_dataframe(sample_manifest)
+    def test_file_id_assignment(self, sample_store):
+        df = manifest_to_dataframe(sample_store)
 
         # Should have 2 unique file IDs (file1.nc and file2.nc)
         assert df["file_id"].nunique() == 2
 
-    def test_multi_file_manifest(self, multi_file_manifest):
-        df = manifest_to_dataframe(multi_file_manifest)
+    def test_multi_file_manifest(self, multi_file_store):
+        df = manifest_to_dataframe(multi_file_store)
 
         assert len(df) == 20  # 5 * 4 chunks
         assert df["path"].nunique() == 3  # 3 different files

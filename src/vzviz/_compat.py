@@ -5,9 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    import holoviews as hv
-    import matplotlib.pyplot as plt
-    import panel as pn
+    pass
 
 
 def import_holoviews() -> Any:
