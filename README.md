@@ -7,7 +7,7 @@ Inspired by [vischunk](https://github.com/jkeifer/vischunk) (MIT License, Copyri
 ## Installation
 
 ```bash
-pip install vzviz
+pip install vzviz @ git+https://github.com/virtual-zarr/vzviz
 ```
 
 ## Usage

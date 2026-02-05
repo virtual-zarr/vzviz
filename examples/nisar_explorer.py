@@ -5,7 +5,7 @@
 #     "earthaccess",
 #     "virtualizarr[hdf] @ git+https://github.com/maxrjones/VirtualiZarr@c-dtype",
 #     "vzviz @ git+https://github.com/virtual-zarr/vzviz",
-#     "obspec-utils @ git+https://github.com/developmentseed/obspec-utils",
+#     "obspec-utils @ git+https://github.com/virtual-zarr/obspec-utils",
 #     "aiohttp",
 #     "panel",
 #     "holoviews",
