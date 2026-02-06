@@ -203,6 +203,7 @@ def _prepare_segments_df(df: pd.DataFrame) -> pd.DataFrame:
                 "y": row["y_pos"],
                 "y_label": row["y_label"],
                 "color": row["color"],
+                "variable": row.get("variable", ""),
                 "chunk_key": row["chunk_key"],
                 "path": row["path"],
                 "offset": row["offset"],  # Keep original bytes for hover
@@ -315,6 +316,7 @@ def _create_segments_plot(
                 kdims=["x0", "y", "x1", "y"],
                 vdims=[
                     "color",
+                    "variable",
                     "chunk_key",
                     "path",
                     "offset",
@@ -344,6 +346,7 @@ def _create_segments_plot(
                 kdims=["x0", "y", "x1", "y"],
                 vdims=[
                     "color",
+                    "variable",
                     "chunk_key",
                     "path",
                     "offset",
@@ -363,7 +366,16 @@ def _create_segments_plot(
     segments_plot = hv.Segments(
         seg_df,
         kdims=["x0", "y", "x1", "y"],
-        vdims=["color", "chunk_key", "path", "offset", "length", "filename", "y_label"],
+        vdims=[
+            "color",
+            "variable",
+            "chunk_key",
+            "path",
+            "offset",
+            "length",
+            "filename",
+            "y_label",
+        ],
     ).opts(
         color="color",
         line_width=8,

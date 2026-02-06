@@ -290,6 +290,7 @@ def _create_heatmap_plot(
                 "y_start",
                 "x_end",
                 "y_end",
+                "variable",
                 "chunk_key",
                 "filename",
                 "offset",
@@ -300,7 +301,7 @@ def _create_heatmap_plot(
         heatmap = hv.Rectangles(
             rects_data,
             kdims=["x_start", "y_start", "x_end", "y_end"],
-            vdims=["chunk_key", "filename", "offset", "length"],
+            vdims=["variable", "chunk_key", "filename", "offset", "length"],
         ).opts(
             fill_color=var_color,
             fill_alpha=1.0,
@@ -340,7 +341,7 @@ def _create_heatmap_plot(
         heatmap = hv.HeatMap(
             df,
             kdims=[x_col, y_col],
-            vdims=["_color", "chunk_key", "filename", "offset", "length"],
+            vdims=["_color", "variable", "chunk_key", "filename", "offset", "length"],
         ).opts(
             cmap=[var_color],
             colorbar=False,
@@ -374,13 +375,20 @@ def _create_heatmap_plot(
         if has_array_coords:
             # Use x_center for bar position
             bar_df = df[
-                ["chunk_key", "filename", "offset", "length", "x_center"]
+                ["variable", "chunk_key", "filename", "offset", "length", "x_center"]
             ].copy()
             bar_df["_height"] = 1
             heatmap = hv.Bars(
                 bar_df,
                 kdims=["x_center"],
-                vdims=["_height", "chunk_key", "filename", "offset", "length"],
+                vdims=[
+                    "_height",
+                    "variable",
+                    "chunk_key",
+                    "filename",
+                    "offset",
+                    "length",
+                ],
             ).opts(
                 color=var_color,
                 width=width,
@@ -395,7 +403,14 @@ def _create_heatmap_plot(
             heatmap = hv.Bars(
                 df,
                 kdims=[x_col],
-                vdims=["_height", "chunk_key", "filename", "offset", "length"],
+                vdims=[
+                    "_height",
+                    "variable",
+                    "chunk_key",
+                    "filename",
+                    "offset",
+                    "length",
+                ],
             ).opts(
                 color=var_color,
                 width=width,
