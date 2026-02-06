@@ -29,12 +29,14 @@ classifiers = [
 ]
 dependencies = [
   "virtualizarr>=1.0",
+  "obspec-utils",
   "pandas>=2.0",
   "numpy>=1.24",
   "param>=2.0",
   "holoviews>=1.18",
   "bokeh>=3.0",
   "panel>=1.0",
+  "ujson",
 ]
 
 [project.urls]

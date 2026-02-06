@@ -11,6 +11,11 @@ from vzviz.core import (
 )
 from vzviz.dashboard import manifest_dashboard
 from vzviz.heatmap import chunk_file_heatmap, chunk_file_heatmap_interactive
+from vzviz.io import (
+    load_manifest_from_json,
+    manifeststore_to_kerchunk_refs,
+    save_manifest_to_json,
+)
 from vzviz.query import (
     QueryMetrics,
     compare_queries,
@@ -58,6 +63,10 @@ __all__ = [
     "manifest_summary",
     "file_summary",
     "manifest_dashboard",
+    # IO (Kerchunk JSON round-trip)
+    "load_manifest_from_json",
+    "save_manifest_to_json",
+    "manifeststore_to_kerchunk_refs",
     # Version
     "__version__",
 ]
