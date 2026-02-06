@@ -376,10 +376,11 @@ def _create_heatmap_plot(
             bar_df = df[
                 ["chunk_key", "filename", "offset", "length", "x_center"]
             ].copy()
+            bar_df["_height"] = 1
             heatmap = hv.Bars(
                 bar_df,
                 kdims=["x_center"],
-                vdims=["chunk_key", "filename", "offset", "length"],
+                vdims=["_height", "chunk_key", "filename", "offset", "length"],
             ).opts(
                 color=var_color,
                 width=width,
@@ -389,10 +390,12 @@ def _create_heatmap_plot(
                 xlabel=x_label,
             )
         else:
+            df = df.copy()
+            df["_height"] = 1
             heatmap = hv.Bars(
                 df,
                 kdims=[x_col],
-                vdims=["chunk_key", "filename", "offset", "length"],
+                vdims=["_height", "chunk_key", "filename", "offset", "length"],
             ).opts(
                 color=var_color,
                 width=width,
