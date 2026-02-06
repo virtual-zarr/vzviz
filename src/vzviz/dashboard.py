@@ -309,6 +309,20 @@ def manifest_dashboard(
     # Selection info panel (only in interactive mode)
     if interactive and selection_state is not None:
         components.append(pn.pane.Markdown("### Selection"))
+
+        # Clear selection button
+        clear_btn = pn.widgets.Button(
+            name="Clear Selection", button_type="light", width=150
+        )
+
+        def on_clear_selection(event):
+            selection_state.clear_selection()
+            if variables_table is not None:
+                variables_table.selection = []
+
+        clear_btn.on_click(on_clear_selection)
+        components.append(clear_btn)
+
         # Get all chunks for selection calculations
         all_chunks_df = manifest_to_dataframe(store, None)
 
