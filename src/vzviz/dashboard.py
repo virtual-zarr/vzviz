@@ -361,10 +361,25 @@ def _format_selection_info(selection_state: Any, df: Any, store: Any = None) -> 
         var_chunks = len(var_df)
         var_bytes = var_df["length"].sum()
 
+        # Check contiguity per variable
+        contiguity = {}
+        for var_name in selection_state.selected_variables:
+            vdf = var_df[var_df["variable"] == var_name].sort_values("offset")
+            if len(vdf) <= 1:
+                contiguity[var_name] = True
+            else:
+                ends = vdf["end_offset"].values[:-1]
+                starts = vdf["offset"].values[1:]
+                contiguity[var_name] = bool((ends == starts).all())
+
         lines.append("**From Table Selection:**")
         lines.append(f"- Variables: {var_list}")
         lines.append(f"- Total Chunks: {var_chunks:,}")
         lines.append(f"- Total Size: {format_bytes(int(var_bytes))}")
+        for var_name in selection_state.selected_variables[:5]:
+            is_contig = contiguity.get(var_name, False)
+            label = "contiguous" if is_contig else "non-contiguous"
+            lines.append(f"  - {var_name}: {label}")
 
     # Section 2: Region selection from ChunkMap
     if (
