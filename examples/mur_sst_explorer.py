@@ -4,7 +4,7 @@
 # dependencies = [
 #     "earthaccess",
 #     "virtualizarr[hdf]",
-#     "vzviz",
+#     "vzviz @ git+https://github.com/virtual-zarr/vzviz",
 #     "obspec-utils",
 #     "aiohttp",
 #     "panel",
@@ -12,9 +12,6 @@
 #     "bokeh",
 #     "colorcet",
 # ]
-#
-# [tool.uv.sources]
-# vzviz = { path = "/Users/max/Documents/Code/claude-workspaces/virtualizarr/vzviz", editable = true }
 # ///
 """
 MUR SST Manifest Explorer
