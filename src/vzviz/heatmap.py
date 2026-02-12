@@ -275,8 +275,21 @@ def _create_heatmap_plot(
     # Get the variable's color (consistent with ByteMap)
     var_color = get_variable_color_map([variable])[variable]
 
+    from bokeh.models import HoverTool
+
+    # Explicit hover tool showing variable and chunk metadata
+    hover = HoverTool(
+        tooltips=[
+            ("variable", "@variable"),
+            ("chunk_key", "@chunk_key"),
+            # ("filename", "@filename"),
+            ("offset", "@offset"),
+            ("length", "@length"),
+        ]
+    )
+
     # Tools for interactive mode include box_select
-    tools = ["hover", "box_select"] if interactive else ["hover"]
+    tools = [hover, "box_select"] if interactive else [hover]
 
     # Check if we have array coordinates (x_start, x_end, etc.)
     has_array_coords = "x_start" in df.columns and "x_end" in df.columns
