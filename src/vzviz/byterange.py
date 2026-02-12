@@ -357,6 +357,7 @@ def _create_segments_plot(
             ).opts(
                 color="color",
                 line_width=8,
+                **common_opts,
             )
 
             return dimmed_plot * highlight * selected_plot
