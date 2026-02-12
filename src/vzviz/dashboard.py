@@ -342,6 +342,8 @@ def manifest_dashboard(
 
 def _format_selection_info(selection_state: Any, df: Any, store: Any = None) -> str:
     """Format selection information for display."""
+    import pandas as pd
+
     from vzviz.utils import format_bytes
 
     if not selection_state.has_selection:
@@ -390,7 +392,14 @@ def _format_selection_info(selection_state: Any, df: Any, store: Any = None) -> 
 
         # Get stats for region selection (highlighted chunks)
         region_keys = selection_state.get_selected_chunk_keys(df, for_highlighting=True)
-        region_df = df[df["chunk_key"].isin(region_keys)]
+        region_mask = pd.Series(
+            [
+                (var, ck) in region_keys
+                for var, ck in zip(df["variable"], df["chunk_key"])
+            ],
+            index=df.index,
+        )
+        region_df = df[region_mask]
         region_chunks = len(region_df)
         region_bytes = region_df["length"].sum()
         region_files = region_df["path"].nunique()

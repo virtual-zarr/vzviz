@@ -130,9 +130,9 @@ class SelectionState(param.Parameterized):
 
     def get_selected_chunk_keys(
         self, df: "pd.DataFrame", for_highlighting: bool = False
-    ) -> set[str]:
+    ) -> set[tuple[str, str]]:
         """
-        Get all chunk keys matching the current selection.
+        Get all (variable, chunk_key) pairs matching the current selection.
 
         Parameters
         ----------
@@ -144,13 +144,13 @@ class SelectionState(param.Parameterized):
 
         Returns
         -------
-        set[str]
-            Set of chunk_key values matching the selection criteria.
+        set[tuple[str, str]]
+            Set of (variable, chunk_key) pairs matching the selection criteria.
         """
         if not self.has_selection:
             return set()
 
-        selected_keys = set()
+        selected_keys: set[tuple[str, str]] = set()
 
         # Bounds from ChunkMap (used for both highlighting and stats)
         if self.bounds is not None:
@@ -192,7 +192,13 @@ class SelectionState(param.Parameterized):
                         if dim_col in df.columns:
                             bounds_mask = bounds_mask & (df[dim_col] == idx)
 
-                selected_keys.update(df.loc[bounds_mask, "chunk_key"].astype(str))
+                matched = df.loc[bounds_mask]
+                selected_keys.update(
+                    zip(
+                        matched["variable"].astype(str),
+                        matched["chunk_key"].astype(str),
+                    )
+                )
 
         # Variable selection only used for stats, not for highlighting
         if (
@@ -202,7 +208,10 @@ class SelectionState(param.Parameterized):
         ):
             # Include all chunks from selected variables (for stats display)
             var_mask = df["variable"].isin(self.selected_variables)
-            selected_keys.update(df.loc[var_mask, "chunk_key"].astype(str))
+            matched = df.loc[var_mask]
+            selected_keys.update(
+                zip(matched["variable"].astype(str), matched["chunk_key"].astype(str))
+            )
 
         return selected_keys
 

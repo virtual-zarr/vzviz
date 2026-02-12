@@ -82,7 +82,11 @@ class TestSelectionState:
         state = SelectionState()
         state.set_selected_variables(["var1"])
         selected = state.get_selected_chunk_keys(chunk_df)
-        assert selected == {"var1_0.0", "var1_0.1", "var1_1.0"}
+        assert selected == {
+            ("var1", "var1_0.0"),
+            ("var1", "var1_0.1"),
+            ("var1", "var1_1.0"),
+        }
 
     def test_get_selected_chunk_keys_by_bounds(self, chunk_df):
         state = SelectionState()
@@ -92,10 +96,10 @@ class TestSelectionState:
         state.bounds_in_array_space = False  # Bounds are in chunk indices
         selected = state.get_selected_chunk_keys(chunk_df)
         # Should match chunks where dim_0=0 AND dim_1 in [0,1]
-        assert "var1_0.0" in selected
-        assert "var1_0.1" in selected
-        assert "var2_0.0" in selected
-        assert "var1_1.0" not in selected
+        assert ("var1", "var1_0.0") in selected
+        assert ("var1", "var1_0.1") in selected
+        assert ("var2", "var2_0.0") in selected
+        assert ("var1", "var1_1.0") not in selected
 
     def test_get_selected_chunk_keys_bounds_in_array_space(self, chunk_df):
         state = SelectionState()
@@ -108,10 +112,10 @@ class TestSelectionState:
         state.set_bounds((0, 0, 5, 15))
         selected = state.get_selected_chunk_keys(chunk_df)
         # Should convert to dim_0=0, dim_1=0-1
-        assert "var1_0.0" in selected
-        assert "var1_0.1" in selected
-        assert "var2_0.0" in selected
-        assert "var1_1.0" not in selected
+        assert ("var1", "var1_0.0") in selected
+        assert ("var1", "var1_0.1") in selected
+        assert ("var2", "var2_0.0") in selected
+        assert ("var1", "var1_1.0") not in selected
 
     def test_get_selected_chunk_keys_for_highlighting(self, chunk_df):
         """for_highlighting=True only returns bounds-selected chunks."""
@@ -128,13 +132,16 @@ class TestSelectionState:
         selected_highlight = state.get_selected_chunk_keys(
             chunk_df, for_highlighting=True
         )
-        assert "var1_1.0" in selected_highlight  # From bounds selection
-        assert "var2_0.0" not in selected_highlight  # Variable selection excluded
+        assert ("var1", "var1_1.0") in selected_highlight  # From bounds selection
+        assert (
+            "var2",
+            "var2_0.0",
+        ) not in selected_highlight  # Variable selection excluded
 
         # for_highlighting=False (default): both bounds and variable selection
         selected_stats = state.get_selected_chunk_keys(chunk_df, for_highlighting=False)
-        assert "var1_1.0" in selected_stats  # From bounds selection
-        assert "var2_0.0" in selected_stats  # From variable selection
+        assert ("var1", "var1_1.0") in selected_stats  # From bounds selection
+        assert ("var2", "var2_0.0") in selected_stats  # From variable selection
 
     def test_get_selected_chunk_keys_no_selection(self, chunk_df):
         state = SelectionState()
@@ -153,8 +160,8 @@ class TestSelectionState:
         state.bounds_variable = "var1"
         selected = state.get_selected_chunk_keys(chunk_df)
         # Should only match var1's chunk, not var2's
-        assert "var1_0.0" in selected
-        assert "var2_0.0" not in selected
+        assert ("var1", "var1_0.0") in selected
+        assert ("var2", "var2_0.0") not in selected
 
 
 class TestGetChunkInfo:
