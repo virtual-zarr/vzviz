@@ -280,7 +280,7 @@ def _create_segments_plot(
     height: int,
     title: str,
     yticks: list,
-    selected_chunk_keys: set[str] | None = None,
+    selected_chunk_keys: set[tuple[str, str]] | None = None,
     show_gaps: bool = False,
     gaps_df: pd.DataFrame | None = None,
 ) -> Any:
@@ -306,8 +306,16 @@ def _create_segments_plot(
         return _create_gaps_plot(hv, gaps_df, common_opts)
 
     if selected_chunk_keys:
-        selected = seg_df[seg_df["chunk_key"].isin(selected_chunk_keys)]
-        non_selected = seg_df[~seg_df["chunk_key"].isin(selected_chunk_keys)]
+        # Match on (variable, chunk_key) tuples for correct cross-variable selection
+        match_mask = pd.Series(
+            [
+                (var, ck) in selected_chunk_keys
+                for var, ck in zip(seg_df["variable"], seg_df["chunk_key"])
+            ],
+            index=seg_df.index,
+        )
+        selected = seg_df[match_mask]
+        non_selected = seg_df[~match_mask]
 
         if not selected.empty:
             # Dimmed non-selected segments
@@ -357,6 +365,7 @@ def _create_segments_plot(
             ).opts(
                 color="color",
                 line_width=8,
+                **common_opts,
             )
 
             return dimmed_plot * highlight * selected_plot

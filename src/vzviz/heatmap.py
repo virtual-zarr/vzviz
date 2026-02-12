@@ -6,7 +6,12 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
-from vzviz.core import get_array, get_dimension_names, manifest_to_dataframe
+from vzviz.core import (
+    get_array,
+    get_dimension_names,
+    list_variables,
+    manifest_to_dataframe,
+)
 
 if TYPE_CHECKING:
     from virtualizarr.manifests import ManifestStore
@@ -95,6 +100,7 @@ def chunk_file_heatmap(
         title = f"ChunkMap: {variable} (Grid: {grid_shape})"
 
     dim_names = get_dimension_names(store, variable)
+    all_variables = list_variables(store)
 
     return _heatmap_holoviews(
         plot_df,
@@ -105,6 +111,7 @@ def chunk_file_heatmap(
         height,
         title,
         dim_names,
+        all_variables=all_variables,
     )
 
 
@@ -228,6 +235,7 @@ def _heatmap_holoviews(
     height: int,
     title: str,
     dim_names: list[str] | None = None,
+    all_variables: list[str] | None = None,
 ) -> Any:
     """Create heatmap using holoviews."""
     import holoviews as hv
@@ -243,6 +251,7 @@ def _heatmap_holoviews(
         height,
         title,
         dim_names=dim_names,
+        all_variables=all_variables,
     )
 
 
@@ -265,6 +274,7 @@ def _create_heatmap_plot(
     dim_names: list[str] | None = None,
     selection_bounds: tuple[float, float, float, float] | None = None,
     interactive: bool = False,
+    all_variables: list[str] | None = None,
 ) -> Any:
     """Create the heatmap plot with optional selection rectangle."""
     from vzviz.utils import get_variable_color_map
@@ -272,11 +282,25 @@ def _create_heatmap_plot(
     x_label = _get_dim_label(dim_x, dim_names)
     y_label = _get_dim_label(dim_y, dim_names) if dim_y is not None else None
 
-    # Get the variable's color (consistent with ByteMap)
-    var_color = get_variable_color_map([variable])[variable]
+    # Get the variable's color using the full variable list for consistency
+    color_map_vars = all_variables if all_variables is not None else [variable]
+    var_color = get_variable_color_map(color_map_vars)[variable]
+
+    from bokeh.models import HoverTool
+
+    # Explicit hover tool showing variable and chunk metadata
+    hover = HoverTool(
+        tooltips=[
+            ("variable", "@variable"),
+            ("chunk_key", "@chunk_key"),
+            # ("filename", "@filename"),
+            ("offset", "@offset"),
+            ("length", "@length"),
+        ]
+    )
 
     # Tools for interactive mode include box_select
-    tools = ["hover", "box_select"] if interactive else ["hover"]
+    tools = [hover, "box_select"] if interactive else [hover]
 
     # Check if we have array coordinates (x_start, x_end, etc.)
     has_array_coords = "x_start" in df.columns and "x_end" in df.columns
@@ -531,6 +555,7 @@ def chunk_file_heatmap_interactive(
         title = f"ChunkMap: {variable} (Grid: {grid_shape})"
 
     dim_names = get_dimension_names(store, variable)
+    all_variables = list_variables(store)
 
     # Store dimension and chunk info in selection state
     selection_state.dim_x = dim_x_idx
@@ -564,6 +589,7 @@ def chunk_file_heatmap_interactive(
             dim_names=dim_names,
             selection_bounds=selection_state.bounds,
             interactive=True,
+            all_variables=all_variables,
         )
 
     # Create stream for box selection
