@@ -37,6 +37,7 @@ dependencies = [
   "bokeh>=3.0",
   "panel>=1.0",
   "ujson",
+  "xarray",
 ]
 
 [project.urls]
@@ -50,6 +51,15 @@ dev = [
   "pytest-cov",
   "coverage",
   "mypy",
+]
+examples = [
+  "earthaccess",
+  "colorcet",
+  "bokeh",
+  "holoviews",
+  "panel",
+  "aiohttp",
+  "h5py",
 ]
 
 [tool.hatch.metadata]
