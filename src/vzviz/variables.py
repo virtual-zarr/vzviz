@@ -76,6 +76,7 @@ def variables_overview(store: "ManifestStore") -> pd.DataFrame:
                 "shape",
                 "chunks",
                 "dtype",
+                "codecs",
                 "ndim",
                 "total_cells",
                 "total_chunks",
@@ -90,6 +91,18 @@ def variables_overview(store: "ManifestStore") -> pd.DataFrame:
     df = pd.DataFrame(records)
     df = df.sort_values("total_bytes", ascending=False).reset_index(drop=True)
     return df
+
+
+def _extract_codec_names(array: "ManifestArray") -> str:
+    """Extract a human-readable codec summary from a ManifestArray."""
+    try:
+        codecs = array.metadata.codecs
+        names = [codec.to_dict()["name"] for codec in codecs]
+        # Filter out the default "bytes" codec for cleaner display
+        names = [n for n in names if n != "bytes"]
+        return " | ".join(names) if names else "none"
+    except Exception:
+        return "unknown"
 
 
 def _analyze_array(array: "ManifestArray", var_path: str) -> dict:
@@ -114,11 +127,15 @@ def _analyze_array(array: "ManifestArray", var_path: str) -> dict:
         chunk_bytes_median = cells_per_chunk * itemsize
         total_bytes = 0
 
+    # Extract codec names from metadata
+    codecs_str = _extract_codec_names(array)
+
     return {
         "variable": var_path,
         "shape": shape,
         "chunks": chunks,
         "dtype": str(dtype),
+        "codecs": codecs_str,
         "ndim": len(shape) if shape else 0,
         "total_cells": total_cells,
         "total_chunks": total_chunks,

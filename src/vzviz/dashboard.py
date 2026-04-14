@@ -102,6 +102,7 @@ def manifest_dashboard(
                 "shape",
                 "chunks",
                 "dtype",
+                "codecs",
                 "total_chunks",
                 "chunk_bytes_human",
                 "total_bytes_human",
