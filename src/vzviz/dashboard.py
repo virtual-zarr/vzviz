@@ -21,7 +21,7 @@ def manifest_dashboard(
     show_overview: bool = True,
     show_byterange: bool = True,
     show_heatmap: bool = True,
-    show_summary: bool = True,
+    show_diagnostics: bool = True,
 ) -> Any:
     """
     Create an interactive dashboard combining all visualizations.
@@ -43,8 +43,8 @@ def manifest_dashboard(
     show_heatmap : bool
         Include chunk-to-file heatmap. If variable is specified, shows that variable.
         Otherwise, shows a reactive heatmap that updates based on table selection.
-    show_summary : bool
-        Include summary statistics table.
+    show_diagnostics : bool
+        Include storage diagnostics (chunk size histogram).
 
     Returns
     -------
@@ -71,45 +71,46 @@ def manifest_dashboard(
 
         selection_state = SelectionState()
 
-    info = get_store_info(store)
     components = []
 
-    # Title
-    title_text = "## ManifestStore Visualization"
-    subtitle_text = (
-        f"**Variables:** {info['n_variables']} | "
-        f"**Groups:** {info['n_groups']} | "
-        f"**Total chunks:** {info['total_chunks']} | "
-        f"**Files:** {info['unique_files']}"
-    )
-    components.append(pn.pane.Markdown(title_text))
-    components.append(pn.pane.Markdown(subtitle_text))
+    # --- Header: title + summary stats ---
+    info = get_store_info(store)
+    summary_df = manifest_summary(store, variable)
 
-    # Variables overview
+    title_text = "## ManifestStore Visualization"
+    components.append(pn.pane.Markdown(title_text))
+
+    header_parts = [
+        f"**Variables:** {info['n_variables']}",
+        f"**Groups:** {info['n_groups']}",
+        f"**Total Chunks:** {info['total_chunks']:,}",
+        f"**Files:** {info['unique_files']}",
+    ]
+    if not summary_df.empty:
+        row = summary_df.iloc[0]
+        from vzviz.utils import format_bytes
+
+        header_parts.append(f"**Total Size:** {row['total_bytes_human']}")
+        header_parts.append(
+            f"**Chunk Size Range:** "
+            f"{format_bytes(int(row['chunk_bytes_min']))} – "
+            f"{format_bytes(int(row['chunk_bytes_max']))}"
+        )
+    components.append(pn.pane.Markdown(" | ".join(header_parts)))
+
+    # --- Variables overview table ---
     variables_table = None
     if show_overview:
-        components.append(pn.pane.Markdown("### Variables Overview"))
+        components.append(pn.pane.Markdown("### Variables"))
         components.append(
             pn.pane.Markdown(
                 "*Select rows to highlight in ByteMap. "
-                "Select one variable to view its heatmap.*"
+                "Select one variable to view its ChunkMap.*"
             )
         )
         overview_df = variables_overview(store)
         if len(overview_df) > 0:
-            display_cols = [
-                "variable",
-                "shape",
-                "chunks",
-                "dtype",
-                "codecs",
-                "total_chunks",
-                "chunk_bytes_human",
-                "total_bytes_human",
-            ]
-            display_df = overview_df[
-                [c for c in display_cols if c in overview_df.columns]
-            ]
+            display_df = _build_variables_display(overview_df)
 
             if interactive and selection_state is not None:
                 # Get variable colors matching the ByteMap
@@ -120,12 +121,10 @@ def manifest_dashboard(
                 # Create row background color style function
                 def row_style(row):
                     color = var_colors.get(row["variable"], "#ffffff")
-                    # Use lighter version for background (add alpha)
                     return [f"background-color: {color}40"] * len(row)
 
                 styled_df = display_df.style.apply(row_style, axis=1)
 
-                # Use Tabulator for interactive row selection
                 variables_table = pn.widgets.Tabulator(
                     styled_df,
                     width=900,
@@ -135,11 +134,9 @@ def manifest_dashboard(
                     configuration={"columnDefaults": {"headerSort": True}},
                 )
 
-                # Connect row selection to selection state
                 def on_selection_change(event):
                     selected_indices = variables_table.selection
                     if selected_indices:
-                        # Use selected_dataframe to handle sorted/filtered views
                         selected_df = variables_table.selected_dataframe
                         if not selected_df.empty and "variable" in selected_df.columns:
                             selected_vars = selected_df["variable"].tolist()
@@ -156,37 +153,7 @@ def manifest_dashboard(
         else:
             components.append(pn.pane.Markdown("*No variables found*"))
 
-    # Summary statistics
-    if show_summary:
-        components.append(pn.pane.Markdown("### Summary Statistics"))
-        summary_df = manifest_summary(store, variable)
-        summary_text = _format_summary(summary_df)
-        components.append(pn.pane.Markdown(summary_text))
-
-        files_df = file_summary(store, variable)
-        if len(files_df) > 0:
-            components.append(pn.pane.Markdown("### Per-File Statistics"))
-            if len(files_df) > 20:
-                components.append(
-                    pn.pane.Markdown(f"*Showing top 20 of {len(files_df)} files*")
-                )
-                display_df = files_df.head(20)
-            else:
-                display_df = files_df
-
-            display_cols = [
-                "filename",
-                "chunk_count",
-                "total_bytes_human",
-                "byte_range",
-                "is_contiguous",
-            ]
-            display_df = display_df[
-                [c for c in display_cols if c in display_df.columns]
-            ]
-            components.append(pn.pane.DataFrame(display_df, width=800))
-
-    # Byte range chart
+    # --- ByteMap ---
     if show_byterange:
         components.append(pn.pane.Markdown("### ByteMap"))
         try:
@@ -196,7 +163,7 @@ def manifest_dashboard(
                     variable,
                     selection_state=selection_state,
                     width=800,
-                    include_toggle=True,  # Enable chunks/gaps toggle
+                    include_toggle=True,
                 )
                 components.append(byterange_component)
             else:
@@ -209,12 +176,63 @@ def manifest_dashboard(
         except Exception as e:
             components.append(pn.pane.Markdown(f"*Error creating ByteMap: {e}*"))
 
-    # Heatmap (reactive to variable selection or fixed variable)
+    # --- Per-file stats (with gap info) ---
+    if show_byterange:
+        files_df = file_summary(store, variable)
+        if len(files_df) > 0:
+            # Merge gap info into file summary
+            gap_df = _get_gap_info(store, variable)
+            if gap_df is not None and len(gap_df) > 0:
+                files_df = files_df.merge(
+                    gap_df[["full_path", "gap_bytes", "gap_bytes_human"]],
+                    left_on="full_path",
+                    right_on="full_path",
+                    how="left",
+                )
+                files_df["gap_bytes"] = files_df["gap_bytes"].fillna(0).astype(int)
+                files_df["gap_bytes_human"] = files_df["gap_bytes_human"].fillna(
+                    "0.000 MB"
+                )
+
+            components.append(pn.pane.Markdown("### Files"))
+            if len(files_df) > 20:
+                components.append(
+                    pn.pane.Markdown(f"*Showing top 20 of {len(files_df)} files*")
+                )
+                file_display = files_df.head(20)
+            else:
+                file_display = files_df
+
+            display_cols = [
+                "filename",
+                "chunk_count",
+                "total_bytes_human",
+                "byte_range",
+                "is_contiguous",
+            ]
+            if "gap_bytes_human" in file_display.columns:
+                display_cols.append("gap_bytes_human")
+
+            file_display = file_display[
+                [c for c in display_cols if c in file_display.columns]
+            ]
+            file_display = file_display.rename(
+                columns={
+                    "filename": "File",
+                    "chunk_count": "Chunks",
+                    "total_bytes_human": "Size",
+                    "byte_range": "Byte Range",
+                    "is_contiguous": "Contiguous",
+                    "gap_bytes_human": "Gaps",
+                }
+            )
+            components.append(pn.pane.DataFrame(file_display, width=800))
+
+    # --- ChunkMap (reactive to variable selection or fixed variable) ---
     if show_heatmap:
         from vzviz.core import get_array
 
         if variable is not None:
-            # Fixed variable mode - show specific variable
             try:
                 array = get_array(store, variable)
                 ndim = len(array.shape)
@@ -240,15 +258,13 @@ def manifest_dashboard(
             except Exception as e:
                 components.append(pn.pane.Markdown(f"*Error creating heatmap: {e}*"))
         elif interactive and selection_state is not None:
-            # Reactive mode - heatmap updates based on selected variable
             components.append(pn.pane.Markdown("### ChunkMap"))
             components.append(
                 pn.pane.Markdown(
-                    "*Select a single variable above to view its chunk heatmap*"
+                    "*Select a single variable above to view its ChunkMap*"
                 )
             )
 
-            # Container for reactive heatmap
             heatmap_container = pn.Column()
 
             def update_heatmap(selected_variables):
@@ -262,8 +278,8 @@ def manifest_dashboard(
                 if len(selected_variables) > 1:
                     heatmap_container.append(
                         pn.pane.Markdown(
-                            f"*{len(selected_variables)} variables selected - "
-                            "select exactly one to view heatmap*"
+                            f"*{len(selected_variables)} variables selected — "
+                            "select exactly one to view ChunkMap*"
                         )
                     )
                     return
@@ -287,31 +303,39 @@ def manifest_dashboard(
                     else:
                         heatmap_container.append(
                             pn.pane.Markdown(
-                                f"*Cannot create heatmap for scalar variable {selected_var}*"
+                                f"*Cannot create ChunkMap for scalar variable {selected_var}*"
                             )
                         )
                 except Exception as e:
                     heatmap_container.append(
                         pn.pane.Markdown(
-                            f"*Error creating heatmap for {selected_var}: {e}*"
+                            f"*Error creating ChunkMap for {selected_var}: {e}*"
                         )
                     )
 
-            # Watch for variable selection changes
             selection_state.param.watch(
                 lambda event: update_heatmap(event.new), "selected_variables"
             )
-
-            # Initial render
             update_heatmap(selection_state.selected_variables)
-
             components.append(heatmap_container)
 
-    # Selection info panel (only in interactive mode)
+    # --- Storage diagnostics ---
+    if show_diagnostics:
+        from vzviz.diagnostics import chunk_size_histogram_plot
+
+        components.append(pn.pane.Markdown("### Chunk Size Distribution"))
+        try:
+            hist_plot = chunk_size_histogram_plot(
+                store, variable, width=800, height=300
+            )
+            components.append(pn.pane.HoloViews(hist_plot))
+        except Exception as e:
+            components.append(pn.pane.Markdown(f"*Error creating histogram: {e}*"))
+
+    # --- Selection info panel (interactive mode only) ---
     if interactive and selection_state is not None:
         components.append(pn.pane.Markdown("### Selection"))
 
-        # Clear selection button
         clear_btn = pn.widgets.Button(
             name="Clear Selection", button_type="light", width=150
         )
@@ -324,10 +348,8 @@ def manifest_dashboard(
         clear_btn.on_click(on_clear_selection)
         components.append(clear_btn)
 
-        # Get all chunks for selection calculations
         all_chunks_df = manifest_to_dataframe(store, None)
 
-        # Use ParamFunction for reliable reactive updates
         @pn.depends(
             selection_state.param.selected_variables,
             selection_state.param.bounds,
@@ -339,6 +361,74 @@ def manifest_dashboard(
         components.append(pn.panel(selection_info_panel))
 
     return pn.Column(*components)
+
+
+def _build_variables_display(overview_df):
+    """Build the display DataFrame for the variables table with readable columns."""
+    df = overview_df.copy()
+
+    # Merge fill_value and fill_value_attr into one column
+    # Show the zarr fill value, flag mismatches with attr
+    def format_fill(row):
+        fv = row.get("fill_value", "")
+        fv_attr = row.get("fill_value_attr", "")
+        if not fv and not fv_attr:
+            return ""
+        if not fv_attr or fv == fv_attr:
+            return fv
+        return f"{fv} (attr: {fv_attr})"
+
+    df["fill_display"] = df.apply(format_fill, axis=1)
+
+    # Select and reorder: identity → values → storage
+    display_cols = [
+        # Identity
+        "variable",
+        "shape",
+        "dtype",
+        "dimension_names",
+        # Values
+        "fill_display",
+        "cf_attrs",
+        # Storage
+        "chunks",
+        "total_chunks",
+        "codecs",
+        "compression_ratio",
+        "chunk_bytes_human",
+        "total_bytes_human",
+    ]
+    result = df[[c for c in display_cols if c in df.columns]]
+
+    result = result.rename(
+        columns={
+            "dimension_names": "Dimensions",
+            "fill_display": "Fill Value",
+            "cf_attrs": "CF Attrs",
+            "chunks": "Chunk Shape",
+            "total_chunks": "Chunks",
+            "codecs": "Codecs",
+            "compression_ratio": "Compression",
+            "chunk_bytes_human": "Chunk Size",
+            "total_bytes_human": "Total Size",
+        }
+    )
+
+    return result
+
+
+def _get_gap_info(store, variable):
+    """Get gap analysis merged with file paths."""
+    try:
+        from vzviz.diagnostics import gap_analysis
+
+        gap_df = gap_analysis(store, variable)
+        if len(gap_df) > 0:
+            gap_df = gap_df.rename(columns={"path": "full_path"})
+            return gap_df
+    except Exception:
+        pass
+    return None
 
 
 def _format_selection_info(selection_state: Any, df: Any, store: Any = None) -> str:
@@ -358,13 +448,11 @@ def _format_selection_info(selection_state: Any, df: Any, store: Any = None) -> 
         if len(selection_state.selected_variables) > 5:
             var_list += f" (+{len(selection_state.selected_variables) - 5} more)"
 
-        # Get stats for variable selection
         var_mask = df["variable"].isin(selection_state.selected_variables)
         var_df = df[var_mask]
         var_chunks = len(var_df)
         var_bytes = var_df["length"].sum()
 
-        # Check contiguity per variable
         contiguity = {}
         for var_name in selection_state.selected_variables:
             vdf = var_df[var_df["variable"] == var_name].sort_values("offset")
@@ -391,7 +479,6 @@ def _format_selection_info(selection_state: Any, df: Any, store: Any = None) -> 
     ):
         x_min, y_min, x_max, y_max = selection_state.bounds
 
-        # Get stats for region selection (highlighted chunks)
         region_keys = selection_state.get_selected_chunk_keys(df, for_highlighting=True)
         region_mask = pd.Series(
             [
@@ -418,7 +505,6 @@ def _format_selection_info(selection_state: Any, df: Any, store: Any = None) -> 
         lines.append(f"- Size: {format_bytes(int(region_bytes))}")
         lines.append(f"- Files: {region_files}")
 
-        # Add performance metrics
         if store is not None:
             try:
                 from vzviz.query import metrics_from_selection
@@ -446,33 +532,9 @@ def _format_selection_info(selection_state: Any, df: Any, store: Any = None) -> 
                 lines.append(f"- Coalescing Factor: {metrics.coalescing_factor:.2f}x")
                 lines.append(f"- Storage Alignment: {metrics.storage_alignment:.2f}")
             except Exception:
-                # Silently skip metrics if they can't be computed
                 pass
 
     if not lines:
         return "*No chunks in selection.*"
 
     return "  \n".join(lines)
-
-
-def _format_summary(summary_df) -> str:
-    """Format summary DataFrame as markdown text."""
-    from vzviz.utils import format_bytes
-
-    if summary_df.empty:
-        return "*No data*"
-
-    row = summary_df.iloc[0]
-
-    lines = [
-        f"- **Total chunks:** {row['total_chunks']:,}",
-        f"- **Unique files:** {row['unique_files']}",
-        f"- **Chunks per file:** {row['chunks_per_file_min']:.0f} - {row['chunks_per_file_max']:.0f} (mean: {row['chunks_per_file_mean']:.1f})",
-        f"- **Chunk sizes:** {format_bytes(int(row['chunk_bytes_min']))} - {format_bytes(int(row['chunk_bytes_max']))} (mean: {format_bytes(int(row['chunk_bytes_mean']))})",
-        f"- **Total data:** {row['total_bytes_human']}",
-    ]
-
-    if "chunk_grid_shape" in row:
-        lines.insert(1, f"- **Chunk grid shape:** {row['chunk_grid_shape']}")
-
-    return "\n".join(lines)

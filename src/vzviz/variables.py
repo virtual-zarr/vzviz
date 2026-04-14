@@ -85,6 +85,11 @@ def variables_overview(store: "ManifestStore") -> pd.DataFrame:
                 "chunk_bytes_human",
                 "total_bytes",
                 "total_bytes_human",
+                "dimension_names",
+                "fill_value",
+                "fill_value_attr",
+                "cf_attrs",
+                "compression_ratio",
             ]
         )
 
@@ -130,6 +135,34 @@ def _analyze_array(array: "ManifestArray", var_path: str) -> dict:
     # Extract codec names from metadata
     codecs_str = _extract_codec_names(array)
 
+    # Dimension names
+    metadata = array.metadata
+    dim_names = metadata.dimension_names
+    dim_names_str = ", ".join(str(d) for d in dim_names) if dim_names else ""
+
+    # Fill value from zarr metadata
+    fill_value = metadata.fill_value
+    fill_value_str = str(fill_value) if fill_value is not None else ""
+
+    # _FillValue from attributes (CF convention)
+    attrs = metadata.attributes or {}
+    fill_value_attr = attrs.get("_FillValue")
+    fill_value_attr_str = str(fill_value_attr) if fill_value_attr is not None else ""
+
+    # CF attribute summary
+    cf_attr_keys = ["scale_factor", "add_offset", "units", "long_name", "coordinates"]
+    present_cf_attrs = [k for k in cf_attr_keys if k in attrs]
+    cf_attrs_str = ", ".join(present_cf_attrs)
+
+    # Compression ratio
+    itemsize = dtype.itemsize if hasattr(dtype, "itemsize") else 8
+    uncompressed_bytes = total_cells * itemsize
+    if uncompressed_bytes > 0 and total_bytes > 0:
+        ratio = total_bytes / uncompressed_bytes
+        compression_ratio_str = f"{ratio:.2f}x"
+    else:
+        compression_ratio_str = ""
+
     return {
         "variable": var_path,
         "shape": shape,
@@ -144,6 +177,11 @@ def _analyze_array(array: "ManifestArray", var_path: str) -> dict:
         "chunk_bytes_human": format_bytes(chunk_bytes_median),
         "total_bytes": total_bytes,
         "total_bytes_human": format_bytes(total_bytes),
+        "dimension_names": dim_names_str,
+        "fill_value": fill_value_str,
+        "fill_value_attr": fill_value_attr_str,
+        "cf_attrs": cf_attrs_str,
+        "compression_ratio": compression_ratio_str,
     }
 
 

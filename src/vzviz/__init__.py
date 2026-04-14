@@ -10,6 +10,11 @@ from vzviz.core import (
     manifest_to_dataframe,
 )
 from vzviz.dashboard import manifest_dashboard
+from vzviz.diagnostics import (
+    chunk_size_distribution,
+    chunk_size_histogram_plot,
+    gap_analysis,
+)
 from vzviz.heatmap import chunk_file_heatmap, chunk_file_heatmap_interactive
 from vzviz.io import (
     load_manifest_from_json,
@@ -53,6 +58,10 @@ __all__ = [
     "compare_queries",
     "metrics_from_selection",
     "QueryMetrics",
+    # Storage diagnostics
+    "chunk_size_distribution",
+    "chunk_size_histogram_plot",
+    "gap_analysis",
     # Selection state for interactive visualizations
     "SelectionState",
     # Visualizations
