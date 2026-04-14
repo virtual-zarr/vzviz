@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #     "earthaccess",
-#     "virtualizarr[hdf] @ git+https://github.com/maxrjones/VirtualiZarr@c-dtype",
+#     "virtualizarr[hdf] @ git+https://github.com/zarr-developers/VirtualiZarr",
 #     "vzviz @ git+https://github.com/virtual-zarr/vzviz",
 #     "obspec-utils @ git+https://github.com/virtual-zarr/obspec-utils",
 #     "aiohttp",
